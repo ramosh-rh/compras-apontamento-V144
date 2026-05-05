@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WMS - Apontamento Compras (Firebase)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap');
+        body { background-color: #0B1120; color: #f8fafc; font-family: 'Inter', sans-serif; overflow-x: hidden; }
+        .glass-panel { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid #1e293b; border-radius: 16px; padding: 24px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); }
+        .tab-btn { border-bottom: 2px solid transparent; padding-bottom: 0.5rem; transition: all 0.3s; color: #64748b; cursor: pointer; text-transform: uppercase; font-size: 0.875rem; font-weight: 700; letter-spacing: 0.05em; }
+        .tab-btn.active { border-bottom-color: #38bdf8; color: #38bdf8; text-shadow: 0 0 10px rgba(56, 189, 248, 0.4); }
+        .tab-content { display: none; animation: fadeIn 0.3s ease-in-out; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        #map-container { background-image: radial-gradient(#1e293b 1px, transparent 1px); background-size: 20px 20px; background-color: #0f172a; cursor: grab; }
+        #map-container:active { cursor: grabbing; }
+        table { border-collapse: separate; border-spacing: 0; width: 100%; }
+        th { background-color: #0f172a; color: #94a3b8; font-weight: 600; padding: 12px; border-bottom: 2px solid #1e293b; text-transform: uppercase; font-size: 0.7rem; }
+        td { padding: 12px; border-bottom: 1px solid #1e293b; font-size: 0.85rem; font-weight: 500; }
+        tr:hover td { background-color: #1e293b; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0B1120; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        .no-pdf { /* Classes to hide from PDF export */ }
+    </style>
+</head>
+<body class="p-4 md:p-6">
+
+    <div class="max-w-[1600px] mx-auto space-y-6">
+        
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center glass-panel border-l-4 border-l-purple-500">
+            <div>
+                <h1 class="text-3xl font-black tracking-tight text-white flex items-center">
+                    WMS <span class="text-purple-400 ml-2">APONTAMENTO COMPRAS</span>
+                </h1>
+                <p class="text-slate-400 mt-1 text-sm">Auditoria de Tempos, Roteirização e Frota em Nuvem</p>
+            </div>
+            <div class="mt-4 md:mt-0 flex items-center bg-slate-900 px-4 py-2 rounded-xl border border-slate-700 shadow-inner">
+                <div class="text-2xl mr-3 relative">☁️<div class="absolute top-0 right-0 w-2 h-2 bg-emerald-500 rounded-full animate-ping"></div></div>
+                <div>
+                    <span class="block text-[10px] text-slate-500 uppercase font-black tracking-widest">Banco de Dados</span>
+                    <span class="text-sm text-emerald-400 font-bold" id="statusNuvem">Conectando Firebase...</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+            
+            <div class="col-span-1 xl:col-span-1 space-y-6">
+                <div class="glass-panel">
+                    <h2 class="text-sm font-black text-slate-300 uppercase tracking-widest mb-4 flex items-center">
+                        <svg class="w-4 h-4 mr-2 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg> Importação
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="relative group">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">1. Execução (Compra)</label>
+                            <input type="file" id="fileCompras" accept=".xlsx, .xls" class="block w-full text-xs text-white file:py-2 file:px-3 file:rounded file:border-0 file:bg-sky-600 file:text-white file:font-bold cursor-pointer bg-slate-900 border border-slate-700 rounded">
+                        </div>
+                        <div class="relative group">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">2. Planeado (Ressuprimento)</label>
+                            <input type="file" id="fileRessup" accept=".xlsx, .xls" class="block w-full text-xs text-white file:py-2 file:px-3 file:rounded file:border-0 file:bg-teal-600 file:text-white file:font-bold cursor-pointer bg-slate-900 border border-slate-700 rounded">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel">
+                    <h2 class="text-sm font-black text-slate-300 uppercase tracking-widest mb-3">Zonas Espaciais</h2>
+                    <div class="space-y-3 text-[11px] font-bold uppercase text-slate-400">
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#f59e0b] shadow-[0_0_8px_#f59e0b] mr-3"></div> Alimentos</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#eab308] shadow-[0_0_8px_#eab308] mr-3"></div> Alto Perfumaria</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#22c55e] shadow-[0_0_8px_#22c55e] mr-3"></div> Baixo Perf/Alto Med</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#3b82f6] shadow-[0_0_8px_#3b82f6] mr-3"></div> Baixo Medicamento</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#ec4899] shadow-[0_0_8px_#ec4899] mr-3"></div> Ruas 40 e 42</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#8b5cf6] shadow-[0_0_8px_#8b5cf6] mr-3"></div> Mezanino</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#94a3b8] shadow-[0_0_8px_#94a3b8] mr-3"></div> Geral (Ruas 10-20)</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-1 xl:col-span-4 space-y-6">
+                
+                <nav class="flex space-x-4 border-b border-slate-800 pb-2 px-2 overflow-x-auto">
+                    <button onclick="mudarAba('mapa')" id="btn-mapa" class="tab-btn active text-orange-400 whitespace-nowrap">📍 Digital Twin (AutoCAD)</button>
+                    <button onclick="mudarAba('dash')" id="btn-dash" class="tab-btn whitespace-nowrap">📊 KPIs Globais & Insights</button>
+                    <button onclick="mudarAba('acuracidade')" id="btn-acuracidade" class="tab-btn whitespace-nowrap text-purple-400">👥 Produtividade & Auditoria</button>
+                    <button onclick="mudarAba('frota')" id="btn-frota" class="tab-btn whitespace-nowrap">🚜 Frota (Nuvem)</button>
+                </nav>
+
+                <div id="aba-mapa" class="tab-content active">
+                    <div class="glass-panel flex flex-col h-[750px] p-0 overflow-hidden relative">
+                        <div class="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-10 shadow-lg">
+                            <div>
+                                <h2 class="text-sm font-bold text-white uppercase tracking-widest flex items-center">
+                                    Navegação Espacial <span class="ml-3 text-[10px] bg-red-900/50 text-red-400 border border-red-700 px-2 py-0.5 rounded-full">🔥 FIREBALL ATIVADO</span>
+                                </h2>
+                            </div>
+                            <div class="flex gap-3">
+                                <button onclick="resetZoom()" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-xs font-bold transition">Reset View</button>
+                                <select id="selectRotaMapa" onchange="renderEngine()" class="bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-xs text-orange-400 font-bold focus:outline-none w-64 shadow-inner">
+                                    <option value="">Apenas Planta do Armazém</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="map-container" class="flex-1 relative w-full h-full"><canvas id="canvasEngine" class="absolute inset-0 w-full h-full"></canvas></div>
+                    </div>
+                </div>
+
+                <div id="aba-dash" class="tab-content space-y-6">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="glass-panel text-center bg-gradient-to-b from-slate-800 to-slate-900"><span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Distância Total</span><br><span id="kpi_dist" class="text-4xl font-black text-white mt-2 block">0.0<span class="text-sm text-slate-500 ml-1">km</span></span></div>
+                        <div class="glass-panel text-center bg-gradient-to-b from-slate-800 to-slate-900"><span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Peças Coletadas</span><br><span id="kpi_pecas" class="text-4xl font-black text-white mt-2 block">0</span></div>
+                        <div class="glass-panel text-center bg-gradient-to-b from-slate-800 to-slate-900"><span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Volumes Totais</span><br><span id="kpi_vol" class="text-4xl font-black text-white mt-2 block">0</span></div>
+                        <div class="glass-panel text-center bg-gradient-to-b from-slate-800 to-slate-900"><span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Média de Eficiência</span><br><span id="kpi_efi" class="text-4xl font-black text-emerald-400 mt-2 block">0<span class="text-sm text-emerald-700 ml-1">pc/km</span></span></div>
+                    </div>
+
+                    <h3 class="text-sm font-black text-slate-300 uppercase tracking-widest pt-4 border-t border-slate-800">🧠 Inteligência Operacional (Insights)</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="glass-panel border-l-4 border-sky-500 flex flex-col justify-center">
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Taxa de Atendimento (%)</span>
+                            <span id="kpi_pct" class="text-3xl font-black text-sky-400 mt-1">0.0%</span>
+                            <span class="text-[10px] text-slate-500 mt-1">Comparativo de Peças Planeadas vs Coletadas</span>
+                        </div>
+                        <div class="glass-panel border-l-4 border-emerald-500 flex flex-col justify-center">
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">🏆 Top Eficiência (Otimização)</span>
+                            <span id="kpi_top_efi" class="text-xl font-black text-emerald-400 mt-1 line-clamp-1">-</span>
+                            <span class="text-[10px] text-slate-500 mt-1">Colaborador com melhor índice PC/KM</span>
+                        </div>
+                        <div class="glass-panel border-l-4 border-red-500 flex flex-col justify-center relative overflow-hidden">
+                            <div class="absolute right-[-10px] top-[-10px] text-6xl opacity-10">🔥</div>
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Maior Gargalo Detectado</span>
+                            <span id="kpi_gargalo_nome" class="text-lg font-black text-white mt-1 line-clamp-1">-</span>
+                            <span id="kpi_gargalo_detalhe" class="text-xs font-bold text-red-400 mt-1 bg-red-900/30 inline-block px-2 py-1 rounded">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="aba-acuracidade" class="tab-content space-y-6">
+                    <div class="glass-panel">
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                            <div>
+                                <h2 class="text-xl font-black text-white">Produtividade e Auditoria de Rota</h2>
+                                <p class="text-xs text-slate-400">Analise o desempenho, partilhe resultados e audite o tempo gasto por cada colaborador.</p>
+                            </div>
+                            <div class="flex gap-2 w-full md:w-auto">
+                                <button onclick="enviarWhatsAppRanking()" class="flex-1 md:flex-none bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-2 rounded font-bold text-sm shadow-[0_0_15px_rgba(37,211,102,0.4)] transition flex items-center justify-center">
+                                    <span class="mr-2">💬</span> Enviar WA
+                                </button>
+                                <button onclick="exportarPDF()" class="flex-1 md:flex-none bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded font-bold text-sm shadow-[0_0_15px_rgba(220,38,38,0.4)] transition flex items-center justify-center">
+                                    <span class="mr-2">📄</span> Exportar PDF
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-800/80 border border-slate-600 rounded-xl p-5 mb-6 relative overflow-hidden shadow-inner">
+                            <div class="absolute left-0 top-0 w-1 h-full bg-emerald-400"></div>
+                            <h3 class="text-sm font-black text-white mb-2 flex items-center">
+                                <span class="text-emerald-400 mr-2">📚</span> O que significa EFIC (PC/KM)?
+                            </h3>
+                            <p class="text-xs text-slate-300 leading-relaxed mb-3">
+                                A sigla <strong>EFIC (PC/KM)</strong> significa <strong>Eficiência (Peças por Quilómetro)</strong>. É o principal indicador de roteirização do armazém. Ele responde à seguinte pergunta: <em>"Quantas caixas/peças este colaborador consegue separar a cada 1 quilómetro que ele caminha ou pilota?"</em>
+                            </p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="bg-red-900/20 border border-red-900/50 p-3 rounded-lg">
+                                    <span class="text-red-400 font-bold text-xs block mb-1">⚠️ Se o número for baixo (ex: 20 pc/km):</span>
+                                    <p class="text-[11px] text-slate-400">Significa que ele está a andar com o equipamento vazio pelo armazém todo só para apanhar um produto. A rota está péssima ou o produto está mal endereçado.</p>
+                                </div>
+                                <div class="bg-emerald-900/20 border border-emerald-900/50 p-3 rounded-lg">
+                                    <span class="text-emerald-400 font-bold text-xs block mb-1">🚀 Se o número for alto (ex: 400 pc/km):</span>
+                                    <p class="text-[11px] text-slate-400">Significa que num espaço muito curto de deslocamento, ele consegue encher o equipamento. É uma operação altamente densa e lucrativa.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="tabelaParaPDF" class="bg-slate-900 border border-slate-700 rounded-lg p-4">
+                            <div class="text-center mb-4 pdf-header" style="display:none;">
+                                <h2 class="text-xl font-black text-white">Relatório Oficial de Produtividade</h2>
+                                <p class="text-xs text-slate-400" id="dataRelatorioPDF"></p>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table id="tbAcuracidade">
+                                    <thead>
+                                        <tr>
+                                            <th>Operador</th>
+                                            <th class="text-right">Km Percorridos</th>
+                                            <th class="text-right">Alvo Planeado</th>
+                                            <th class="text-right text-sky-400">Coletado</th>
+                                            <th class="text-right text-red-400">Divergência</th>
+                                            <th class="text-center text-emerald-400">Efic. (pc/km)</th>
+                                            <th class="text-center no-pdf text-purple-400">Auditoria (Tempos)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody><tr><td colspan="7" class="text-center py-12 text-slate-600 font-mono text-xs">Aguardando importação para gerar relatório.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="aba-frota" class="tab-content space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="glass-panel border-l-4 border-emerald-500">
+                            <h3 class="text-xs font-bold text-slate-400 uppercase">Equipamentos Operacionais</h3>
+                            <p class="text-3xl font-black text-emerald-400 mt-1" id="kpi_frota_ok">0</p>
+                        </div>
+                        <div class="glass-panel border-l-4 border-red-500">
+                            <h3 class="text-xs font-bold text-slate-400 uppercase">Equipamentos em Manutenção</h3>
+                            <p class="text-3xl font-black text-red-400 mt-1" id="kpi_frota_broken">0</p>
+                        </div>
+                        <div class="glass-panel border-l-4 border-orange-500 bg-orange-900/10">
+                            <h3 class="text-xs font-bold text-slate-400 uppercase">Impacto Retido (Cx/Peças)</h3>
+                            <p class="text-3xl font-black text-orange-400 mt-1" id="kpi_frota_impact">0</p>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel">
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                            <div>
+                                <h2 class="text-lg font-bold text-white">Quadro de Disponibilidade (Sincronizado na Nuvem)</h2>
+                                <p class="text-xs text-slate-400">Dados protegidos no Google Firebase. Atualizações em tempo real.</p>
+                            </div>
+                            <div class="flex gap-2 w-full md:w-auto">
+                                <button onclick="enviarWhatsAppFrota()" class="flex-1 md:flex-none bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-2 rounded font-bold text-sm shadow-[0_0_15px_rgba(37,211,102,0.4)] transition flex items-center justify-center">
+                                    <span class="mr-2">💬</span> Partilhar WA
+                                </button>
+                                <button onclick="abrirModalNovoEquip()" class="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded font-bold text-sm shadow-lg transition flex items-center justify-center">
+                                    <span class="mr-2">➕</span> Cadastrar Equip.
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto rounded-lg border border-slate-700">
+                            <table id="tbFrota">
+                                <thead>
+                                    <tr>
+                                        <th>Equipamento</th>
+                                        <th>Tipo</th>
+                                        <th>Status</th>
+                                        <th class="text-center">Capacidade/Dia</th>
+                                        <th class="text-center">Data da Parada</th>
+                                        <th class="text-center text-red-400">Dias Parado</th>
+                                        <th class="text-right text-orange-400">Impacto (Perda)</th>
+                                        <th class="text-center">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bodyFrota"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <div id="modalTimeline" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden items-center justify-center z-50 p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl shadow-2xl flex flex-col h-[80vh]">
+            <div class="p-6 border-b border-slate-800 flex justify-between items-center">
+                <div>
+                    <h3 class="text-xl font-black text-purple-400 flex items-center">🔍 Extrato de Tempos e Movimentos</h3>
+                    <p class="text-sm text-slate-300 mt-1">Colaborador(a): <span id="timelineOpNome" class="font-bold text-white"></span></p>
+                    <p class="text-[10px] text-slate-500 mt-1">O tempo gasto refere-se ao intervalo entre o endereço anterior e o endereço atual.</p>
+                </div>
+                <button onclick="fecharModalTimeline()" class="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition text-xl leading-none">✖</button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-0">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-950 sticky top-0 shadow-md">
+                        <tr>
+                            <th class="p-3 text-slate-400 font-bold uppercase text-[10px]">Seq</th>
+                            <th class="p-3 text-slate-400 font-bold uppercase text-[10px]">Hora da Coleta</th>
+                            <th class="p-3 text-sky-400 font-bold uppercase text-[10px]">Endereço Bipado</th>
+                            <th class="p-3 text-slate-400 font-bold uppercase text-[10px]">Romaneio</th>
+                            <th class="p-3 text-right text-purple-400 font-bold uppercase text-[10px]">Tempo Gasto (Gargalo)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bodyTimeline" class="text-slate-300">
+                        </tbody>
+                </table>
+            </div>
+            <div class="p-4 bg-slate-950 border-t border-slate-800 text-xs text-slate-500 flex justify-between">
+                <span>⏱️ = Alerta (> 5 min)</span>
+                <span>⚠️ = Gargalo Crítico (> 10 min)</span>
+                <span class="text-blue-400 font-bold">🍽️ = Horário de Janta (Intervalo ignorado p/ gargalo)</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="modalNovoEquip" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-slate-900 border border-slate-700 p-6 rounded-xl w-[400px] shadow-2xl">
+            <h3 class="text-lg font-black text-emerald-400 mb-4 flex items-center">➕ Novo Equipamento</h3>
+            <div class="space-y-4">
+                <div><label class="block text-xs font-bold text-slate-400 mb-1">Nome da Máquina:</label><input type="text" id="novoEqNome" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm focus:border-emerald-500"></div>
+                <div><label class="block text-xs font-bold text-slate-400 mb-1">Tipo:</label><select id="novoEqTipo" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm focus:border-emerald-500"><option value="Selecionadora">Selecionadora</option><option value="Empilhadeira">Empilhadeira</option><option value="Paleteira">Paleteira</option><option value="Coletor">Coletor</option><option value="Outros">Outros</option></select></div>
+                <div><label class="block text-xs font-bold text-slate-400 mb-1">Capacidade (Cx/Dia):</label><input type="number" id="novoEqCapacidade" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm focus:border-emerald-500"></div>
+                <div class="flex gap-2 pt-4"><button onclick="fecharModalNovoEquip()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-sm font-bold transition">Cancelar</button><button onclick="salvarNovoEquip()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded text-sm font-bold transition">Guardar</button></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="modalQuebra" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-slate-900 border border-slate-700 p-6 rounded-xl w-96 shadow-2xl">
+            <h3 class="text-lg font-black text-red-400 mb-2">⚠️ Informar Avaria</h3>
+            <input type="hidden" id="modalEqId">
+            <div class="space-y-4">
+                <div><label class="block text-xs font-bold text-slate-400 mb-1">Data da Paragem:</label><input type="date" id="modalData" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm focus:border-red-500"></div>
+                <div class="flex gap-2 pt-2"><button onclick="fecharModalQuebra()" class="flex-1 bg-slate-700 text-white py-2 rounded text-sm font-bold">Cancelar</button><button onclick="confirmarQuebra()" class="flex-1 bg-red-600 text-white py-2 rounded text-sm font-bold">Paralisar</button></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="modalEdicao" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-slate-900 border border-slate-700 p-6 rounded-xl w-[400px] shadow-2xl">
+            <h3 class="text-lg font-black text-sky-400 mb-4">✏️ Editar Equipamento</h3>
+            <input type="hidden" id="editEqId">
+            <div class="space-y-4">
+                <div><label class="block text-xs font-bold text-slate-400 mb-1">Nome:</label><input type="text" id="editEqNome" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm focus:border-sky-500"></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="block text-xs font-bold text-slate-400 mb-1">Tipo:</label><select id="editEqTipo" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm focus:border-sky-500"><option value="Selecionadora">Selecionadora</option><option value="Empilhadeira">Empilhadeira</option><option value="Paleteira">Paleteira</option><option value="Coletor">Coletor</option><option value="Outros">Outros</option></select></div>
+                    <div><label class="block text-xs font-bold text-slate-400 mb-1">Capacidade/Dia:</label><input type="number" id="editEqCapacidade" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm focus:border-sky-500"></div>
+                </div>
+                <div><label class="block text-xs font-bold text-slate-400 mb-1">Status Atual:</label><select id="editEqStatus" onchange="toggleEditData()" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"><option value="ok">Operacional</option><option value="quebrado">Em Manutenção</option></select></div>
+                <div id="divEditData" class="hidden border-t border-slate-700 pt-3 mt-3"><label class="block text-xs font-bold text-red-400 mb-1">Data da Paragem:</label><input type="date" id="editEqData" class="w-full bg-slate-800 border border-red-900 rounded p-2 text-white text-sm"></div>
+                <div class="flex gap-2 pt-4 border-t border-slate-700"><button onclick="fecharModalEdicao()" class="flex-1 bg-slate-700 text-white py-2 rounded text-sm font-bold">Cancelar</button><button onclick="salvarEdicao()" class="flex-1 bg-sky-600 text-white py-2 rounded text-sm font-bold">Guardar</button></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔥 CONEXÃO OFICIAL COM O FIREBASE DA SUA EMPRESA 🔥
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyCiL4_3YqPQnXSb-Yr67jFxZO7Sp5x1MRs",
+            authDomain: "apontamento-compras.firebaseapp.com",
+            databaseURL: "https://apontamento-compras-default-rtdb.firebaseio.com",
+            projectId: "apontamento-compras",
+            storageBucket: "apontamento-compras.firebasestorage.app",
+            messagingSenderId: "428465365710",
+            appId: "1:428465365710:web:d6fca9fbc248df4d92e69f"
+        };
+
+        // INICIALIZAÇÃO DO FIREBASE (NUVEM)
+        let db;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+            document.getElementById('statusNuvem').innerText = "ONLINE";
+            document.getElementById('statusNuvem').classList.replace("text-emerald-400", "text-sky-400");
+        } catch (error) {
+            console.error("Erro Firebase:", error);
+            document.getElementById('statusNuvem').innerText = "OFFLINE (Verifique a internet)";
+            document.getElementById('statusNuvem').classList.replace("text-emerald-400", "text-red-400");
+        }
+
+        // Variável Global para a Timeline dos Operadores
+        window.timelineOpData = {};
+        let frota = [];
+        const HOJE = new Date("2026-05-04T00:00:00");
+
+        // ==========================================
+        // 1. GESTÃO DE ABAS
+        // ==========================================
+        function mudarAba(idAba) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active', 'text-sky-400', 'text-orange-400', 'text-emerald-400', 'text-purple-400'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            const btn = document.getElementById('btn-' + idAba);
+            btn.classList.add('active');
+            
+            if(idAba === 'mapa') btn.classList.add('text-orange-400');
+            else if(idAba === 'frota') btn.classList.add('text-emerald-400');
+            else if(idAba === 'acuracidade') btn.classList.add('text-purple-400');
+            else btn.classList.add('text-sky-400');
+
+            document.getElementById('aba-' + idAba).classList.add('active');
+            if(idAba === 'mapa') requestAnimationFrame(renderEngine);
+        }
+
+        // ==========================================
+        // 2. TIMELINE E AUDITORIA (COM DETEÇÃO DE JANTA)
+        // ==========================================
+        function formatarTempoExtenso(segundos) {
+            if(segundos === 0) return "-";
+            let h = Math.floor(segundos / 3600);
+            let m = Math.floor((segundos % 3600) / 60);
+            let s = segundos % 60;
+            let str = "";
+            if(h > 0) str += `${h}h `;
+            if(m > 0) str += `${m}m `;
+            str += `${s}s`;
+            return str;
+        }
+
+        function abrirModalTimeline(op) {
+            document.getElementById('timelineOpNome').innerText = op;
+            const tbody = document.getElementById('bodyTimeline');
+            let html = '';
+            
+            let dados = window.timelineOpData[op];
+            if(!dados || dados.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8">Nenhum dado encontrado para este operador.</td></tr>';
+                return;
+            }
+
+            dados.forEach((p, index) => {
+                let dt = p.dt;
+                let classeLinha = "hover:bg-slate-800 transition";
+                let icone = "";
+                let rotulo = "";
+
+                if (p.isJanta) {
+                    classeLinha = "bg-blue-900/20 text-blue-300 border-l-4 border-l-blue-500 font-bold";
+                    icone = "🍽️ ";
+                    rotulo = " (Pausa p/ Janta)";
+                } else if(dt > 600) { 
+                    classeLinha = "bg-red-900/20 text-red-300 border-l-4 border-l-red-500 font-bold";
+                    icone = "⚠️ ";
+                } else if (dt > 300) { 
+                    classeLinha = "bg-orange-900/20 text-orange-300 border-l-4 border-l-orange-500 font-semibold";
+                    icone = "⏱️ ";
+                }
+
+                let tempoFormatado = index === 0 ? "Primeiro Bipe (Início)" : formatarTempoExtenso(dt) + rotulo;
+
+                html += `
+                <tr class="border-b border-slate-800/50 ${classeLinha}">
+                    <td class="p-3 font-mono opacity-50">${index + 1}</td>
+                    <td class="p-3 font-mono">${p.hora}</td>
+                    <td class="p-3 font-mono font-bold text-sky-400">${p.raw}</td>
+                    <td class="p-3 text-xs opacity-70">${p.romaneio}</td>
+                    <td class="p-3 text-right font-black tracking-wide">${icone}${tempoFormatado}</td>
+                </tr>`;
+            });
+
+            tbody.innerHTML = html;
+            document.getElementById('modalTimeline').classList.remove('hidden');
+            document.getElementById('modalTimeline').classList.add('flex');
+        }
+
+        function fecharModalTimeline() {
+            document.getElementById('modalTimeline').classList.add('hidden');
+            document.getElementById('modalTimeline').classList.remove('flex');
+        }
+
+        // ==========================================
+        // 3. EXPORTAÇÃO PDF & WHATSAPP
+        // ==========================================
+        function exportarPDF() {
+            if(Object.keys(motorDadosOp).length === 0) { alert("Importe os dados primeiro para gerar o PDF."); return; }
+            const elementosOcultos = document.querySelectorAll('.no-pdf');
+            elementosOcultos.forEach(el => el.style.display = 'none');
+            const element = document.getElementById('tabelaParaPDF');
+            const headers = element.querySelectorAll('.pdf-header');
+            headers.forEach(h => h.style.display = 'block');
+            document.getElementById('dataRelatorioPDF').innerText = "Gerado em: " + new Date().toLocaleString('pt-PT');
+            const opt = { margin: 0.3, filename: 'Relatorio_Produtividade_WMS.pdf', image: { type: 'jpeg', quality: 1 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#0f172a' }, jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' } };
+            html2pdf().set(opt).from(element).save().then(() => { headers.forEach(h => h.style.display = 'none'); elementosOcultos.forEach(el => el.style.display = ''); });
+        }
+
+        function enviarWhatsAppRanking() {
+            if(Object.keys(motorDadosOp).length === 0) { alert("Nenhum dado importado."); return; }
+            let textoWa = `📊 *RANKING DE PRODUTIVIDADE E EFICIÊNCIA* 📊\n\n`;
+            let ranking = Object.keys(motorDadosOp).map(op => { let d = motorDadosOp[op]; let efi = d.dist_km > 0 ? (d.qtde_real / d.dist_km).toFixed(0) : 0; return { op, pcs: d.qtde_real, km: d.dist_km.toFixed(2), efi: parseInt(efi) }; }).sort((a,b) => b.efi - a.efi); 
+            ranking.slice(0, 10).forEach((r, idx) => { let medalha = idx === 0 ? "🥇" : (idx === 1 ? "🥈" : (idx === 2 ? "🥉" : "🔹")); textoWa += `${medalha} *${r.op}*\n📦 Coletado: ${r.pcs} cx | 🚶 Dist: ${r.km} km\n📈 *EFIC:* ${r.efi} pc/km\n\n`; });
+            textoWa += `📚 *O que significa EFIC (PC/KM)?*\nÉ a Eficiência por Km percorrido.`;
+            window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent(textoWa), '_blank');
+        }
+
+        // ==========================================
+        // 4. GESTÃO DE FROTA COM FIREBASE (NUVEM)
+        // ==========================================
+        async function carregarBancoFrota() {
+            if(!db) return; // Se Firebase falhou, não carrega.
+            try {
+                const snapshot = await db.collection("equipamentos").get();
+                frota = [];
+                if(snapshot.empty) {
+                    // Cria uma máquina de teste na nuvem se estiver vazio
+                    let defaultEq = { id: Date.now(), nome: "Selecionadora 01", tipo: "Selecionadora", status: "ok", dataParada: null, capDiaria: 1500 };
+                    const docRef = await db.collection("equipamentos").add(defaultEq);
+                    defaultEq.firebaseId = docRef.id;
+                    frota.push(defaultEq);
+                } else {
+                    snapshot.forEach(doc => {
+                        let eq = doc.data();
+                        eq.firebaseId = doc.id; // Guarda a ID do Firebase para podermos apagar/editar depois
+                        frota.push(eq);
+                    });
+                }
+                renderFrota();
+            } catch(e) {
+                console.error("Erro ao puxar da nuvem:", e);
+                alert("Falha ao sincronizar frota com a nuvem.");
+            }
+        }
+
+        function calcularDiasParados(dataStr) { if(!dataStr) return 0; const dParada = new Date(dataStr + "T00:00:00"); let dias = Math.ceil((HOJE - dParada) / (1000 * 60 * 60 * 24)); return dias < 0 ? 0 : (dias === 0 ? 1 : dias); }
+
+        function renderFrota() {
+            const tbody = document.getElementById('bodyFrota'); let rowsHTML = ""; let countOk = 0, countBroken = 0, totalImpact = 0;
+            frota.forEach(eq => {
+                let diasParado = 0; let impacto = 0;
+                if (eq.status === 'ok') { countOk++; } else { countBroken++; diasParado = calcularDiasParados(eq.dataParada); impacto = diasParado * eq.capDiaria; totalImpact += impacto; }
+                const trClass = eq.status === 'ok' ? 'text-slate-300' : 'bg-red-900/10 text-red-200 border-l-2 border-red-500';
+                const statusBadge = eq.status === 'ok' ? '<span class="bg-emerald-900/50 text-emerald-400 px-2 py-1 rounded text-[10px] font-bold">OPERACIONAL</span>' : '<span class="bg-red-900/50 text-red-400 px-2 py-1 rounded text-[10px] font-bold animate-pulse">AVARIADO</span>';
+                let btnAction = eq.status === 'ok' ? `<button onclick="abrirModalQuebra(${eq.id})" class="text-[10px] bg-slate-700 hover:bg-red-600 text-white px-2 py-1 rounded transition mr-1">⚠️</button>` : `<button onclick="consertarEquip(${eq.id})" class="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded shadow-[0_0_10px_rgba(16,185,129,0.5)] transition mr-1">✓</button>`;
+                btnAction += `<button onclick="abrirModalEdicao(${eq.id})" class="text-[10px] bg-sky-800 hover:bg-sky-600 text-white px-2 py-1 rounded transition mr-1">✏️</button><button onclick="excluirEquip(${eq.id})" class="text-[10px] bg-slate-800 hover:bg-slate-600 text-slate-400 px-2 py-1 rounded transition">✖</button>`;
+                rowsHTML += `<tr class="${trClass}"><td class="font-bold">${eq.nome}</td><td class="text-xs text-slate-400">${eq.tipo}</td><td>${statusBadge}</td><td class="text-center font-mono">${eq.capDiaria.toLocaleString()}</td><td class="text-center text-xs font-mono">${eq.dataParada ? eq.dataParada.split('-').reverse().join('/') : '-'}</td><td class="text-center font-black ${diasParado > 0 ? 'text-red-400' : 'text-slate-600'}">${diasParado}</td><td class="text-right font-black ${eq.status === 'ok' ? 'text-slate-600' : 'text-orange-400'}">${eq.status === 'ok' ? 'N/A' : '-' + impacto.toLocaleString() + ' cx'}</td><td class="text-center whitespace-nowrap">${btnAction}</td></tr>`;
+            });
+            tbody.innerHTML = rowsHTML || `<tr><td colspan="8" class="text-center py-6 text-slate-500 text-sm">Nenhum equipamento registado.</td></tr>`;
+            document.getElementById('kpi_frota_ok').innerText = countOk; document.getElementById('kpi_frota_broken').innerText = countBroken; document.getElementById('kpi_frota_impact').innerText = totalImpact.toLocaleString();
+        }
+
+        function enviarWhatsAppFrota() {
+            let countOk = 0, countBroken = 0, totalImpact = 0; let msgAvarias = "";
+            frota.forEach(eq => { if(eq.status === 'ok') countOk++; else { countBroken++; let dias = calcularDiasParados(eq.dataParada); let imp = dias * eq.capDiaria; totalImpact += imp; msgAvarias += `\n⚠️ *${eq.nome}* (${eq.tipo})\n⏳ Parada há: ${dias} dia(s)\n📉 Impacto: -${imp.toLocaleString()} caixas\n`; }});
+            let textoWa = `🚜 *RESUMO DE FROTA - DISPONIBILIDADE TÉCNICA* 🚜\n\n✅ *Operacionais:* ${countOk}\n🚨 *Em Manutenção:* ${countBroken}\n🔥 *IMPACTO TOTAL RETIDO:* -${totalImpact.toLocaleString()} caixas/peças\n`;
+            if(countBroken > 0) textoWa += `\n*DETALHAMENTO:*${msgAvarias}`; else textoWa += `\n🚀 Frota 100% operacional no momento!`;
+            window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent(textoWa), '_blank');
+        }
+
+        function abrirModalNovoEquip() { document.getElementById('modalNovoEquip').classList.remove('hidden'); document.getElementById('modalNovoEquip').classList.add('flex'); }
+        function fecharModalNovoEquip() { document.getElementById('modalNovoEquip').classList.add('hidden'); document.getElementById('modalNovoEquip').classList.remove('flex'); }
+        
+        async function salvarNovoEquip() { 
+            const nome = document.getElementById('novoEqNome').value.trim(); const tipo = document.getElementById('novoEqTipo').value; const cap = parseInt(document.getElementById('novoEqCapacidade').value); 
+            if(!nome || isNaN(cap) || cap <= 0) return alert("Erro nos dados"); 
+            
+            // Estado para o botão (feedback visual)
+            const btn = event.target;
+            btn.innerText = "A guardar na Nuvem...";
+            
+            let novoEq = { id: Date.now(), nome: nome, tipo: tipo, status: 'ok', dataParada: null, capDiaria: cap };
+            try {
+                const docRef = await db.collection("equipamentos").add(novoEq);
+                novoEq.firebaseId = docRef.id;
+                frota.push(novoEq); 
+                fecharModalNovoEquip(); 
+                renderFrota(); 
+            } catch(e) { 
+                console.error("Erro Nuvem:", e); alert("Erro ao salvar na nuvem."); 
+            } finally {
+                btn.innerText = "Guardar";
+            }
+        }
+
+        function abrirModalQuebra(id) { document.getElementById('modalEqId').value = id; document.getElementById('modalData').value = "2026-05-04"; document.getElementById('modalQuebra').classList.remove('hidden'); document.getElementById('modalQuebra').classList.add('flex'); }
+        function fecharModalQuebra() { document.getElementById('modalQuebra').classList.add('hidden'); document.getElementById('modalQuebra').classList.remove('flex'); }
+        
+        async function confirmarQuebra() { 
+            const eq = frota.find(e => e.id === parseInt(document.getElementById('modalEqId').value)); 
+            if(eq) { 
+                const dataStr = document.getElementById('modalData').value;
+                try {
+                    await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'quebrado', dataParada: dataStr });
+                    eq.status = 'quebrado'; eq.dataParada = dataStr; 
+                } catch(e) { console.error("Erro Nuvem:", e); alert("Erro ao avariar na nuvem");}
+            } 
+            fecharModalQuebra(); renderFrota(); 
+        }
+
+        function abrirModalEdicao(id) { const eq = frota.find(e => e.id === id); if(!eq) return; document.getElementById('editEqId').value = id; document.getElementById('editEqNome').value = eq.nome; document.getElementById('editEqTipo').value = eq.tipo; document.getElementById('editEqCapacidade').value = eq.capDiaria; document.getElementById('editEqStatus').value = eq.status; document.getElementById('editEqData').value = eq.dataParada || "2026-05-04"; toggleEditData(); document.getElementById('modalEdicao').classList.remove('hidden'); document.getElementById('modalEdicao').classList.add('flex'); }
+        function toggleEditData() { document.getElementById('divEditData').classList[document.getElementById('editEqStatus').value === 'quebrado' ? 'remove' : 'add']('hidden'); }
+        function fecharModalEdicao() { document.getElementById('modalEdicao').classList.add('hidden'); document.getElementById('modalEdicao').classList.remove('flex'); }
+        
+        async function salvarEdicao() { 
+            const eq = frota.find(e => e.id === parseInt(document.getElementById('editEqId').value)); if(!eq) return; 
+            
+            const novoNome = document.getElementById('editEqNome').value; 
+            const novoTipo = document.getElementById('editEqTipo').value; 
+            const novaCap = parseInt(document.getElementById('editEqCapacidade').value); 
+            const novoStatus = document.getElementById('editEqStatus').value; 
+            const novaData = novoStatus === 'quebrado' ? document.getElementById('editEqData').value : null; 
+            
+            try {
+                await db.collection("equipamentos").doc(eq.firebaseId).update({ nome: novoNome, tipo: novoTipo, capDiaria: novaCap, status: novoStatus, dataParada: novaData });
+                eq.nome = novoNome; eq.tipo = novoTipo; eq.capDiaria = novaCap; eq.status = novoStatus; eq.dataParada = novaData;
+            } catch(e) { console.error("Erro Nuvem:", e); alert("Erro na edição da nuvem."); }
+            fecharModalEdicao(); renderFrota(); 
+        }
+
+        async function consertarEquip(id) { 
+            const eq = frota.find(e => e.id === id); 
+            if(eq) { 
+                try {
+                    await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'ok', dataParada: null });
+                    eq.status = 'ok'; eq.dataParada = null; 
+                } catch(e) { console.error("Erro Nuvem:", e); alert("Erro ao marcar como ok na nuvem.");}
+            } 
+            renderFrota(); 
+        }
+
+        async function excluirEquip(id) { 
+            if(confirm("Deseja excluir este equipamento permanentemente da NUVEM?")) { 
+                const eq = frota.find(e => e.id === id); 
+                try {
+                    await db.collection("equipamentos").doc(eq.firebaseId).delete();
+                    frota = frota.filter(e => e.id !== id); 
+                } catch(e) { console.error("Erro Nuvem:", e); alert("Erro ao deletar da nuvem."); }
+                renderFrota(); 
+            } 
+        }
+
+        // ==========================================
+        // 5. MOTOR AUTOCAD, ALGORITMOS ESPACIAIS E IMPORTAÇÃO
+        // ==========================================
+        const COLORS = { alimento: '#f59e0b', mezanino: '#8b5cf6', amarelo: '#eab308', verde: '#22c55e', azul: '#3b82f6', rosa: '#ec4899', geral: '#64748b', fundoBloco: 'rgba(30, 41, 59, 0.4)' };
+        function getZonaCor(rua, modulo, prefixo) {
+            if (prefixo === 'VR') return COLORS.alimento; if (prefixo === 'VX' || rua >= 80) return COLORS.mezanino;
+            if (rua >= 21 && rua <= 36) { if (modulo <= 26) return COLORS.amarelo; if (modulo >= 33 && modulo <= 46) return COLORS.verde; if (modulo >= 53 && modulo <= 60) return COLORS.azul; }
+            if (rua === 40 || rua === 42) return COLORS.rosa; if (rua >= 10 && rua <= 20) return COLORS.geral; return COLORS.fundoBloco;
+        }
+        function mapToGrid(rua, modulo, prefixo) { let gx = rua; let gy = modulo; if (prefixo === 'VR') { gx = rua; gy = modulo - 40; } else if (prefixo === 'VX' || rua >= 80) { gx = (rua - 80) + 21; gy = -30; } return { x: gx, y: gy }; }
+
+        const canvas = document.getElementById('canvasEngine'); const ctx = canvas.getContext('2d'); const container = document.getElementById('map-container');
+        let transform = { x: 0, y: 0, scale: 15 }; let isDragging = false; let startPan = { x: 0, y: 0 };
+        function resizeCanvas() { const rect = container.getBoundingClientRect(); canvas.width = rect.width; canvas.height = rect.height; if(transform.x === 0 && transform.y === 0) { transform.x = canvas.width / 2 - (25 * transform.scale); transform.y = canvas.height / 2 - (30 * transform.scale); } renderEngine(); }
+        window.addEventListener('resize', resizeCanvas);
+        function resetZoom() { transform.scale = Math.min(canvas.width / 50, canvas.height / 110); transform.x = canvas.width / 2 - (25 * transform.scale); transform.y = canvas.height / 2 - (30 * transform.scale) + 150; requestAnimationFrame(renderEngine); }
+        container.addEventListener('mousedown', e => { isDragging = true; startPan = { x: e.clientX - transform.x, y: e.clientY - transform.y }; });
+        container.addEventListener('mousemove', e => { if (!isDragging) return; transform.x = e.clientX - startPan.x; transform.y = e.clientY - startPan.y; requestAnimationFrame(renderEngine); });
+        container.addEventListener('mouseup', () => isDragging = false); container.addEventListener('mouseleave', () => isDragging = false);
+        container.addEventListener('wheel', e => { e.preventDefault(); const mouseX = e.clientX - container.getBoundingClientRect().left; const mouseY = e.clientY - container.getBoundingClientRect().top; let newScale = Math.max(3, Math.min(transform.scale * (1 + (-e.deltaY * 0.002)), 50)); transform.x = mouseX - (mouseX - transform.x) * (newScale / transform.scale); transform.y = mouseY - (mouseY - transform.y) * (newScale / transform.scale); transform.scale = newScale; requestAnimationFrame(renderEngine); });
+
+        function desenharBlocoGeral(inicioX, fimX, inicioY, fimY, corFundo, corBorda, label) {
+            ctx.fillStyle = corFundo; const largura = (fimX - inicioX + 1); const altura = (fimY - inicioY + 1); ctx.fillRect(inicioX - 0.4, inicioY - 0.4, largura + 0.8, altura + 0.8);
+            ctx.fillStyle = corBorda; for(let rx = inicioX; rx <= fimX; rx++) for(let my = inicioY; my <= fimY; my++) ctx.fillRect(rx - 0.2, my - 0.4, 0.4, 0.8); 
+            if (transform.scale > 5) { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '1px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, inicioX + largura/2, inicioY + altura/2); }
+        }
+
+        function desenharArmazemBlueprint() {
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.5)'; ctx.fillRect(5, -45, 42, 110);
+            desenharBlocoGeral(10, 13, -28, -9, 'rgba(245, 158, 11, 0.1)', COLORS.alimento, 'ALIMENTOS');
+            desenharBlocoGeral(21, 32, -35, -15, 'rgba(139, 92, 246, 0.1)', COLORS.mezanino, 'MEZANINO');
+            desenharBlocoGeral(10, 20, 1, 60, 'rgba(100, 116, 139, 0.1)', COLORS.geral, 'GERAL');
+            desenharBlocoGeral(21, 36, 1, 26, 'rgba(234, 179, 8, 0.1)', COLORS.amarelo, 'ALTO PERF.');
+            desenharBlocoGeral(21, 36, 33, 46, 'rgba(34, 197, 94, 0.1)', COLORS.verde, 'BAIXO PERF.');
+            desenharBlocoGeral(21, 36, 53, 60, 'rgba(59, 130, 246, 0.1)', COLORS.azul, 'BAIXO MED.');
+            desenharBlocoGeral(40, 40, 57, 90, 'rgba(236, 72, 153, 0.1)', COLORS.rosa, '40');
+            desenharBlocoGeral(42, 42, 57, 90, 'rgba(236, 72, 153, 0.1)', COLORS.rosa, '42');
+        }
+
+        function timeToSeconds(timeStr) { if(!timeStr) return 0; let p = timeStr.split(':'); return parseInt(p[0]||0) * 3600 + parseInt(p[1]||0) * 60 + parseInt(p[2]||0); }
+
+        function desenharRotas() {
+            const op = document.getElementById('selectRotaMapa').value; if(!op || !coordsPorOperador[op]) return; const coords = coordsPorOperador[op];
+            let maxDt = -1; let maxIndex = -1;
+            for(let i = 1; i < coords.length; i++) { 
+                if(coords[i].romaneio === coords[i-1].romaneio) { 
+                    let dt = coords[i].sec - coords[i-1].sec; if(dt < 0) dt += 86400; 
+                    if(dt > maxDt) { maxDt = dt; maxIndex = i; } 
+                } 
+            }
+            ctx.beginPath(); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 0.3; ctx.lineJoin = 'round'; ctx.setLineDash([0.5, 0.5]); ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 5;
+            for(let i=0; i<coords.length; i++) { if(i === 0) ctx.moveTo(coords[i].gx, coords[i].gy); else ctx.lineTo(coords[i].gx, coords[i].gy); } ctx.stroke(); ctx.shadowBlur = 0; ctx.setLineDash([]);
+            coords.forEach((p, i) => {
+                const isGargalo = (i === maxIndex && maxDt > 60);
+                if (isGargalo) { ctx.shadowColor = '#ef4444'; ctx.shadowBlur = 20; ctx.fillStyle = '#f97316'; ctx.beginPath(); ctx.arc(p.gx, p.gy, 1.2, 0, 2*Math.PI); ctx.fill(); ctx.shadowBlur = 0; } 
+                else { ctx.beginPath(); ctx.arc(p.gx, p.gy, 0.4, 0, 2*Math.PI); ctx.fillStyle = p.cor; ctx.fill(); ctx.lineWidth = 0.1; ctx.strokeStyle = '#ffffff'; ctx.stroke(); }
+                if (transform.scale > 10 || isGargalo) { 
+                    ctx.save(); ctx.translate(p.gx, p.gy - 1); ctx.scale(1/transform.scale, 1/transform.scale); let labelText = `${i+1}º ${p.raw}`;
+                    if (isGargalo) { ctx.font = '900 13px Inter'; labelText = `🔥 GARGALO: +${Math.round(maxDt/60)} min em ${p.raw}`; ctx.fillStyle = 'rgba(153, 27, 27, 0.9)'; } 
+                    else { ctx.font = 'bold 11px Inter'; ctx.fillStyle = 'rgba(15, 23, 42, 0.9)'; }
+                    const txtW = ctx.measureText(labelText).width; ctx.fillRect(-txtW/2 - 6, -14, txtW + 12, 20);
+                    ctx.fillStyle = isGargalo ? '#fca5a5' : '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(labelText, 0, -3); ctx.restore();
+                }
+            });
+        }
+
+        function renderEngine() { if (!ctx) return; ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.save(); ctx.translate(transform.x, transform.y); ctx.scale(transform.scale, transform.scale); desenharArmazemBlueprint(); desenharRotas(); ctx.restore(); }
+
+        window.onload = function() { carregarBancoFrota(); resizeCanvas(); resetZoom(); };
+
+        let rawCompras = []; let baseRessup = {}; let motorDadosOp = {}; let coordsPorOperador = {}; 
+        
+        document.getElementById('fileCompras').addEventListener('change', function(e) {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const data = XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).Sheets[XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).SheetNames[0]], {header: 1, raw: false, defval: ""});
+                rawCompras = []; let currentRomaneio = "Desc"; let currentOp = "Desc";
+                data.forEach(row => { let col1 = String(row[1] || "").trim(); let col2 = String(row[2] || "").trim(); let col3 = String(row[3] || "").trim(); let col4 = String(row[4] || "").trim();
+                    if (col1 && !col1.includes('/') && col1 !== "Romaneio" && !col3.includes(':')) { currentRomaneio = col1; if (col2 && col2 !== "Nome") currentOp = col2; }
+                    if (!col1 && col2 && col2 !== "Nome" && !col3.includes(':')) currentOp = col2;
+                    if (col3.includes(':') && col4.toUpperCase().startsWith('V')) { let q = parseFloat(String(row[5]||"0").replace(',', '.')); let v = parseFloat(String(row[6]||"0").replace(',', '.')); rawCompras.push({ romaneio: currentRomaneio, operador: currentOp, hora: col3, loc: col4.toUpperCase(), qtde: isNaN(q)?0:q, volume: isNaN(v)?0:v }); }
+                }); processarAlgoritmo();
+            }; reader.readAsArrayBuffer(e.target.files[0]);
+        });
+
+        document.getElementById('fileRessup').addEventListener('change', function(e) {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const data = XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).Sheets[XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).SheetNames[0]], {header: 1, raw: false, defval: ""});
+                baseRessup = {}; data.forEach(row => { let colRomaneio = String(row[2] || "").trim(); if(colRomaneio.length > 3) { let q = parseFloat(String(row[6]||"0").replace(',', '.')); if(!isNaN(q)) baseRessup[colRomaneio] = (baseRessup[colRomaneio] || 0) + q; } }); processarAlgoritmo();
+            }; reader.readAsArrayBuffer(e.target.files[0]);
+        });
+
+        function processarAlgoritmo() {
+            if(rawCompras.length === 0) return;
+            motorDadosOp = {}; coordsPorOperador = {}; window.timelineOpData = {}; rawCompras.sort((a,b) => a.hora.localeCompare(b.hora)); let rotasPorRomaneio = {};
+            let globalInsights = { maxEficVal: -1, topEficName: '-', maxGargaloSec: -1, topGargaloName: '-', topGargaloLoc: '-', totalPlanejado: 0 };
+
+            rawCompras.forEach(item => { let op = item.operador; let rom = item.romaneio; if(!motorDadosOp[op]) motorDadosOp[op] = { qtde_real: 0, vol_real: 0, dist_metros: 0, planejado: 0, romaneios: new Set() }; motorDadosOp[op].qtde_real += item.qtde; motorDadosOp[op].vol_real += item.volume; motorDadosOp[op].romaneios.add(rom);
+                let locParsed = parseLocDigitalTwin(item); if(locParsed) { if(!rotasPorRomaneio[rom]) rotasPorRomaneio[rom] = []; rotasPorRomaneio[rom].push(locParsed); if(!coordsPorOperador[op]) coordsPorOperador[op] = []; coordsPorOperador[op].push(locParsed); }
+            });
+
+            let globals = { dist_m: 0, pcs: 0, vol: 0, plan: 0 };
+            
+            Object.keys(motorDadosOp).forEach(op => { 
+                let d = motorDadosOp[op]; 
+                let maxDtOp = -1; let maxLocOp = "";
+                
+                window.timelineOpData[op] = [];
+                let coordsOpGlobais = coordsPorOperador[op] || [];
+                coordsOpGlobais.sort((a,b) => a.sec - b.sec); 
+                
+                coordsOpGlobais.forEach((coordAtual, i) => {
+                    let dt = 0;
+                    let isJanta = false;
+
+                    if(i > 0) {
+                        let pSec = coordsOpGlobais[i-1].sec;
+                        dt = coordAtual.sec - pSec;
+                        if(dt < 0) dt += 86400; // virou meia-noite
+                        
+                        // LÓGICA DE JANTA (Filtro 22:50 às 00:00)
+                        if (dt >= 3000 && dt <= 7200) { 
+                            let prevH = pSec / 3600;
+                            if (prevH >= 22 && prevH <= 23.5) {
+                                isJanta = true;
+                            }
+                        }
+                    }
+                    
+                    window.timelineOpData[op].push({
+                        raw: coordAtual.raw, hora: coordAtual.hora, romaneio: coordAtual.romaneio, dt: dt, isJanta: isJanta
+                    });
+
+                    if(i > 0 && coordAtual.romaneio === coordsOpGlobais[i-1].romaneio) {
+                        if(dt > maxDtOp && !isJanta) { maxDtOp = dt; maxLocOp = coordAtual.raw; }
+                    }
+                });
+
+                d.romaneios.forEach(rom => { 
+                    let coords = rotasPorRomaneio[rom]; 
+                    if(coords && coords.length > 0) { 
+                        for(let i = 1; i < coords.length; i++) { 
+                            let dist = calcDistanciaReal(coords[i-1], coords[i]); d.dist_metros += dist; globals.dist_m += dist; 
+                        } 
+                    } 
+                    if(baseRessup[rom]) d.planejado += baseRessup[rom]; 
+                }); 
+
+                if(maxDtOp > globalInsights.maxGargaloSec && maxDtOp > 60) {
+                    globalInsights.maxGargaloSec = maxDtOp; globalInsights.topGargaloName = op; globalInsights.topGargaloLoc = maxLocOp;
+                }
+
+                d.dist_km = d.dist_metros / 1000; globals.pcs += d.qtde_real; globals.vol += d.vol_real; 
+                let efiOp = d.dist_km > 0 ? (d.qtde_real / d.dist_km) : 0;
+                if(efiOp > globalInsights.maxEficVal) { globalInsights.maxEficVal = efiOp; globalInsights.topEficName = op; }
+                globalInsights.totalPlanejado += d.planejado;
+            });
+            
+            let kpiDist = (globals.dist_m / 1000); let kpiEfi = kpiDist > 0 ? (globals.pcs / kpiDist) : 0;
+            document.getElementById('kpi_dist').innerHTML = `${isNaN(kpiDist)?0:kpiDist.toFixed(2)}<span class="text-sm text-slate-500 ml-1">km</span>`; document.getElementById('kpi_pecas').innerText = isNaN(globals.pcs)?0:globals.pcs; document.getElementById('kpi_vol').innerText = isNaN(globals.vol)?0:globals.vol; document.getElementById('kpi_efi').innerHTML = `${isNaN(kpiEfi)?0:kpiEfi.toFixed(0)}<span class="text-sm text-emerald-700 ml-1">pc/km</span>`;
+            
+            let pct = globalInsights.totalPlanejado > 0 ? (globals.pcs / globalInsights.totalPlanejado) * 100 : 0;
+            document.getElementById('kpi_pct').innerText = pct.toFixed(1) + '%';
+            document.getElementById('kpi_top_efi').innerText = globalInsights.topEficName;
+            
+            if(globalInsights.maxGargaloSec > 0) {
+                document.getElementById('kpi_gargalo_nome').innerText = globalInsights.topGargaloName;
+                document.getElementById('kpi_gargalo_detalhe').innerText = `Perdeu ${Math.round(globalInsights.maxGargaloSec/60)} min em ${globalInsights.topGargaloLoc}`;
+            } else {
+                document.getElementById('kpi_gargalo_nome').innerText = "-";
+                document.getElementById('kpi_gargalo_detalhe').innerText = "Sem gargalos anormais";
+            }
+
+            const tb = document.querySelector('#tbAcuracidade tbody'); let r = ""; 
+            Object.keys(motorDadosOp).sort((a,b)=> motorDadosOp[b].qtde_real - motorDadosOp[a].qtde_real).forEach(op => { 
+                let d = motorDadosOp[op]; let falta = d.planejado > 0 ? d.planejado - d.qtde_real : 0; let efi = d.dist_km > 0 ? (d.qtde_real / d.dist_km).toFixed(0) : 0; 
+                r += `<tr class="text-slate-300">
+                    <td class="text-white font-bold">${op}</td>
+                    <td class="text-right text-slate-400 font-mono">${d.dist_km.toFixed(3)}</td>
+                    <td class="text-right text-slate-500 font-mono">${d.planejado > 0 ? d.planejado : '-'}</td>
+                    <td class="text-right text-sky-400 font-mono font-bold">${d.qtde_real}</td>
+                    <td class="text-right font-mono ${falta>0?'text-red-400 font-bold':'text-slate-600'}">${falta>0?falta:'0'}</td>
+                    <td class="text-center font-black text-emerald-400 font-mono">${efi}</td>
+                    <td class="text-center no-pdf"><button onclick="abrirModalTimeline('${op}')" class="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded shadow-lg transition text-xs font-bold w-full">🔍 Linha de Tempo</button></td>
+                </tr>`; 
+            }); 
+            tb.innerHTML = r || '<tr><td colspan="7" class="text-center py-8">Vazio</td></tr>';
+            const sel = document.getElementById('selectRotaMapa'); sel.innerHTML = '<option value="">Apenas Planta do Armazém</option>'; Object.keys(coordsPorOperador).forEach(op => sel.innerHTML += `<option value="${op}">Rastrear GPS & Gargalos: ${op}</option>`); requestAnimationFrame(renderEngine);
+        }
+    </script>
+</body>
+</html>
