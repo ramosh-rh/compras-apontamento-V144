@@ -3,10 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WMS - Apontamento Compras</title>
+    <title>WMS - Apontamento Compras (Firebase)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap');
         body { background-color: #0B1120; color: #f8fafc; font-family: 'Inter', sans-serif; overflow-x: hidden; }
@@ -37,13 +41,13 @@
                 <h1 class="text-3xl font-black tracking-tight text-white flex items-center">
                     WMS <span class="text-purple-400 ml-2">APONTAMENTO COMPRAS</span>
                 </h1>
-                <p class="text-slate-400 mt-1 text-sm">Auditoria de Tempos (Filtro de Janta), Roteirização e Frota</p>
+                <p class="text-slate-400 mt-1 text-sm">Auditoria de Tempos, Roteirização e Frota em Nuvem</p>
             </div>
             <div class="mt-4 md:mt-0 flex items-center bg-slate-900 px-4 py-2 rounded-xl border border-slate-700 shadow-inner">
-                <div class="text-2xl mr-3 relative">⏱️<div class="absolute top-0 right-0 w-2 h-2 bg-emerald-500 rounded-full animate-ping"></div></div>
+                <div class="text-2xl mr-3 relative">☁️<div class="absolute top-0 right-0 w-2 h-2 bg-emerald-500 rounded-full animate-ping"></div></div>
                 <div>
-                    <span class="block text-[10px] text-slate-500 uppercase font-black tracking-widest">Motor de Auditoria</span>
-                    <span class="text-sm text-emerald-400 font-bold">Timeline Ativa</span>
+                    <span class="block text-[10px] text-slate-500 uppercase font-black tracking-widest">Banco de Dados</span>
+                    <span class="text-sm text-emerald-400 font-bold" id="statusNuvem">Conectando Firebase...</span>
                 </div>
             </div>
         </header>
@@ -87,7 +91,7 @@
                     <button onclick="mudarAba('mapa')" id="btn-mapa" class="tab-btn active text-orange-400 whitespace-nowrap">📍 Digital Twin (AutoCAD)</button>
                     <button onclick="mudarAba('dash')" id="btn-dash" class="tab-btn whitespace-nowrap">📊 KPIs Globais & Insights</button>
                     <button onclick="mudarAba('acuracidade')" id="btn-acuracidade" class="tab-btn whitespace-nowrap text-purple-400">👥 Produtividade & Auditoria</button>
-                    <button onclick="mudarAba('frota')" id="btn-frota" class="tab-btn whitespace-nowrap">🚜 Frota & Equipamentos</button>
+                    <button onclick="mudarAba('frota')" id="btn-frota" class="tab-btn whitespace-nowrap">🚜 Frota (Nuvem)</button>
                 </nav>
 
                 <div id="aba-mapa" class="tab-content active">
@@ -219,8 +223,8 @@
                     <div class="glass-panel">
                         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                             <div>
-                                <h2 class="text-lg font-bold text-white">Quadro de Disponibilidade Técnica e Impacto</h2>
-                                <p class="text-xs text-slate-400">Adicione e edite máquinas. Avalie e partilhe o impacto retido.</p>
+                                <h2 class="text-lg font-bold text-white">Quadro de Disponibilidade (Sincronizado na Nuvem)</h2>
+                                <p class="text-xs text-slate-400">Dados protegidos no Google Firebase. Atualizações em tempo real.</p>
                             </div>
                             <div class="flex gap-2 w-full md:w-auto">
                                 <button onclick="enviarWhatsAppFrota()" class="flex-1 md:flex-none bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-2 rounded font-bold text-sm shadow-[0_0_15px_rgba(37,211,102,0.4)] transition flex items-center justify-center">
@@ -331,8 +335,36 @@
     </div>
 
     <script>
+        // ==========================================
+        // 🔥 CONEXÃO OFICIAL COM O FIREBASE DA SUA EMPRESA 🔥
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyCiL4_3YqPQnXSb-Yr67jFxZO7Sp5x1MRs",
+            authDomain: "apontamento-compras.firebaseapp.com",
+            databaseURL: "https://apontamento-compras-default-rtdb.firebaseio.com",
+            projectId: "apontamento-compras",
+            storageBucket: "apontamento-compras.firebasestorage.app",
+            messagingSenderId: "428465365710",
+            appId: "1:428465365710:web:d6fca9fbc248df4d92e69f"
+        };
+
+        // INICIALIZAÇÃO DO FIREBASE (NUVEM)
+        let db;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+            document.getElementById('statusNuvem').innerText = "ONLINE";
+            document.getElementById('statusNuvem').classList.replace("text-emerald-400", "text-sky-400");
+        } catch (error) {
+            console.error("Erro Firebase:", error);
+            document.getElementById('statusNuvem').innerText = "OFFLINE (Verifique a internet)";
+            document.getElementById('statusNuvem').classList.replace("text-emerald-400", "text-red-400");
+        }
+
         // Variável Global para a Timeline dos Operadores
         window.timelineOpData = {};
+        let frota = [];
+        const HOJE = new Date("2026-05-04T00:00:00");
 
         // ==========================================
         // 1. GESTÃO DE ABAS
@@ -350,7 +382,6 @@
 
             document.getElementById('aba-' + idAba).classList.add('active');
             if(idAba === 'mapa') requestAnimationFrame(renderEngine);
-            if(idAba === 'frota') renderFrota();
         }
 
         // ==========================================
@@ -385,7 +416,6 @@
                 let icone = "";
                 let rotulo = "";
 
-                // Regra de Cores (Prioridade para a Janta)
                 if (p.isJanta) {
                     classeLinha = "bg-blue-900/20 text-blue-300 border-l-4 border-l-blue-500 font-bold";
                     icone = "🍽️ ";
@@ -421,7 +451,7 @@
         }
 
         // ==========================================
-        // 3. EXPORTAÇÃO PDF & WHATSAPP PRODUTIVIDADE
+        // 3. EXPORTAÇÃO PDF & WHATSAPP
         // ==========================================
         function exportarPDF() {
             if(Object.keys(motorDadosOp).length === 0) { alert("Importe os dados primeiro para gerar o PDF."); return; }
@@ -436,25 +466,42 @@
         }
 
         function enviarWhatsAppRanking() {
-            if(Object.keys(motorDadosOp).length === 0) { alert("Nenhum dado importado para partilhar."); return; }
+            if(Object.keys(motorDadosOp).length === 0) { alert("Nenhum dado importado."); return; }
             let textoWa = `📊 *RANKING DE PRODUTIVIDADE E EFICIÊNCIA* 📊\n\n`;
             let ranking = Object.keys(motorDadosOp).map(op => { let d = motorDadosOp[op]; let efi = d.dist_km > 0 ? (d.qtde_real / d.dist_km).toFixed(0) : 0; return { op, pcs: d.qtde_real, km: d.dist_km.toFixed(2), efi: parseInt(efi) }; }).sort((a,b) => b.efi - a.efi); 
             ranking.slice(0, 10).forEach((r, idx) => { let medalha = idx === 0 ? "🥇" : (idx === 1 ? "🥈" : (idx === 2 ? "🥉" : "🔹")); textoWa += `${medalha} *${r.op}*\n📦 Coletado: ${r.pcs} cx | 🚶 Dist: ${r.km} km\n📈 *EFIC:* ${r.efi} pc/km\n\n`; });
-            textoWa += `📚 *O que significa EFIC (PC/KM)?*\nÉ a Eficiência por Km percorrido.\n⚠️ *EFIC Baixo:* A andar de equipamento vazio (rota má).\n🚀 *EFIC Alto:* Enche o equipamento rápido (operação rentável).`;
+            textoWa += `📚 *O que significa EFIC (PC/KM)?*\nÉ a Eficiência por Km percorrido.`;
             window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent(textoWa), '_blank');
         }
 
         // ==========================================
-        // 4. GESTÃO DE FROTA
+        // 4. GESTÃO DE FROTA COM FIREBASE (NUVEM)
         // ==========================================
-        let frota = [];
-        const HOJE = new Date("2026-05-04T00:00:00"); 
-
-        function carregarBancoFrota() {
-            const dataGuardada = localStorage.getItem('wms_frota_bd_v2');
-            if (dataGuardada) { frota = JSON.parse(dataGuardada); } else { frota = [{ id: 1, nome: "Selecionadora 01", tipo: "Selecionadora", status: "ok", dataParada: null, capDiaria: 1500 }]; salvarBancoFrota(); }
+        async function carregarBancoFrota() {
+            if(!db) return; // Se Firebase falhou, não carrega.
+            try {
+                const snapshot = await db.collection("equipamentos").get();
+                frota = [];
+                if(snapshot.empty) {
+                    // Cria uma máquina de teste na nuvem se estiver vazio
+                    let defaultEq = { id: Date.now(), nome: "Selecionadora 01", tipo: "Selecionadora", status: "ok", dataParada: null, capDiaria: 1500 };
+                    const docRef = await db.collection("equipamentos").add(defaultEq);
+                    defaultEq.firebaseId = docRef.id;
+                    frota.push(defaultEq);
+                } else {
+                    snapshot.forEach(doc => {
+                        let eq = doc.data();
+                        eq.firebaseId = doc.id; // Guarda a ID do Firebase para podermos apagar/editar depois
+                        frota.push(eq);
+                    });
+                }
+                renderFrota();
+            } catch(e) {
+                console.error("Erro ao puxar da nuvem:", e);
+                alert("Falha ao sincronizar frota com a nuvem.");
+            }
         }
-        function salvarBancoFrota() { localStorage.setItem('wms_frota_bd_v2', JSON.stringify(frota)); }
+
         function calcularDiasParados(dataStr) { if(!dataStr) return 0; const dParada = new Date(dataStr + "T00:00:00"); let dias = Math.ceil((HOJE - dParada) / (1000 * 60 * 60 * 24)); return dias < 0 ? 0 : (dias === 0 ? 1 : dias); }
 
         function renderFrota() {
@@ -482,19 +529,88 @@
 
         function abrirModalNovoEquip() { document.getElementById('modalNovoEquip').classList.remove('hidden'); document.getElementById('modalNovoEquip').classList.add('flex'); }
         function fecharModalNovoEquip() { document.getElementById('modalNovoEquip').classList.add('hidden'); document.getElementById('modalNovoEquip').classList.remove('flex'); }
-        function salvarNovoEquip() { const nome = document.getElementById('novoEqNome').value.trim(); const tipo = document.getElementById('novoEqTipo').value; const cap = parseInt(document.getElementById('novoEqCapacidade').value); if(!nome || isNaN(cap) || cap <= 0) return alert("Erro nos dados"); frota.push({ id: Date.now(), nome: nome, tipo: tipo, status: 'ok', dataParada: null, capDiaria: cap }); salvarBancoFrota(); fecharModalNovoEquip(); renderFrota(); }
+        
+        async function salvarNovoEquip() { 
+            const nome = document.getElementById('novoEqNome').value.trim(); const tipo = document.getElementById('novoEqTipo').value; const cap = parseInt(document.getElementById('novoEqCapacidade').value); 
+            if(!nome || isNaN(cap) || cap <= 0) return alert("Erro nos dados"); 
+            
+            // Estado para o botão (feedback visual)
+            const btn = event.target;
+            btn.innerText = "A guardar na Nuvem...";
+            
+            let novoEq = { id: Date.now(), nome: nome, tipo: tipo, status: 'ok', dataParada: null, capDiaria: cap };
+            try {
+                const docRef = await db.collection("equipamentos").add(novoEq);
+                novoEq.firebaseId = docRef.id;
+                frota.push(novoEq); 
+                fecharModalNovoEquip(); 
+                renderFrota(); 
+            } catch(e) { 
+                console.error("Erro Nuvem:", e); alert("Erro ao salvar na nuvem."); 
+            } finally {
+                btn.innerText = "Guardar";
+            }
+        }
+
         function abrirModalQuebra(id) { document.getElementById('modalEqId').value = id; document.getElementById('modalData').value = "2026-05-04"; document.getElementById('modalQuebra').classList.remove('hidden'); document.getElementById('modalQuebra').classList.add('flex'); }
         function fecharModalQuebra() { document.getElementById('modalQuebra').classList.add('hidden'); document.getElementById('modalQuebra').classList.remove('flex'); }
-        function confirmarQuebra() { const eq = frota.find(e => e.id === parseInt(document.getElementById('modalEqId').value)); if(eq) { eq.status = 'quebrado'; eq.dataParada = document.getElementById('modalData').value; salvarBancoFrota(); } fecharModalQuebra(); renderFrota(); }
+        
+        async function confirmarQuebra() { 
+            const eq = frota.find(e => e.id === parseInt(document.getElementById('modalEqId').value)); 
+            if(eq) { 
+                const dataStr = document.getElementById('modalData').value;
+                try {
+                    await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'quebrado', dataParada: dataStr });
+                    eq.status = 'quebrado'; eq.dataParada = dataStr; 
+                } catch(e) { console.error("Erro Nuvem:", e); alert("Erro ao avariar na nuvem");}
+            } 
+            fecharModalQuebra(); renderFrota(); 
+        }
+
         function abrirModalEdicao(id) { const eq = frota.find(e => e.id === id); if(!eq) return; document.getElementById('editEqId').value = id; document.getElementById('editEqNome').value = eq.nome; document.getElementById('editEqTipo').value = eq.tipo; document.getElementById('editEqCapacidade').value = eq.capDiaria; document.getElementById('editEqStatus').value = eq.status; document.getElementById('editEqData').value = eq.dataParada || "2026-05-04"; toggleEditData(); document.getElementById('modalEdicao').classList.remove('hidden'); document.getElementById('modalEdicao').classList.add('flex'); }
         function toggleEditData() { document.getElementById('divEditData').classList[document.getElementById('editEqStatus').value === 'quebrado' ? 'remove' : 'add']('hidden'); }
         function fecharModalEdicao() { document.getElementById('modalEdicao').classList.add('hidden'); document.getElementById('modalEdicao').classList.remove('flex'); }
-        function salvarEdicao() { const eq = frota.find(e => e.id === parseInt(document.getElementById('editEqId').value)); if(!eq) return; eq.nome = document.getElementById('editEqNome').value; eq.tipo = document.getElementById('editEqTipo').value; eq.capDiaria = parseInt(document.getElementById('editEqCapacidade').value); eq.status = document.getElementById('editEqStatus').value; eq.dataParada = eq.status === 'quebrado' ? document.getElementById('editEqData').value : null; salvarBancoFrota(); fecharModalEdicao(); renderFrota(); }
-        function consertarEquip(id) { const eq = frota.find(e => e.id === id); if(eq) { eq.status = 'ok'; eq.dataParada = null; } salvarBancoFrota(); renderFrota(); }
-        function excluirEquip(id) { if(confirm("Deseja excluir este equipamento?")) { frota = frota.filter(e => e.id !== id); salvarBancoFrota(); renderFrota(); } }
+        
+        async function salvarEdicao() { 
+            const eq = frota.find(e => e.id === parseInt(document.getElementById('editEqId').value)); if(!eq) return; 
+            
+            const novoNome = document.getElementById('editEqNome').value; 
+            const novoTipo = document.getElementById('editEqTipo').value; 
+            const novaCap = parseInt(document.getElementById('editEqCapacidade').value); 
+            const novoStatus = document.getElementById('editEqStatus').value; 
+            const novaData = novoStatus === 'quebrado' ? document.getElementById('editEqData').value : null; 
+            
+            try {
+                await db.collection("equipamentos").doc(eq.firebaseId).update({ nome: novoNome, tipo: novoTipo, capDiaria: novaCap, status: novoStatus, dataParada: novaData });
+                eq.nome = novoNome; eq.tipo = novoTipo; eq.capDiaria = novaCap; eq.status = novoStatus; eq.dataParada = novaData;
+            } catch(e) { console.error("Erro Nuvem:", e); alert("Erro na edição da nuvem."); }
+            fecharModalEdicao(); renderFrota(); 
+        }
+
+        async function consertarEquip(id) { 
+            const eq = frota.find(e => e.id === id); 
+            if(eq) { 
+                try {
+                    await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'ok', dataParada: null });
+                    eq.status = 'ok'; eq.dataParada = null; 
+                } catch(e) { console.error("Erro Nuvem:", e); alert("Erro ao marcar como ok na nuvem.");}
+            } 
+            renderFrota(); 
+        }
+
+        async function excluirEquip(id) { 
+            if(confirm("Deseja excluir este equipamento permanentemente da NUVEM?")) { 
+                const eq = frota.find(e => e.id === id); 
+                try {
+                    await db.collection("equipamentos").doc(eq.firebaseId).delete();
+                    frota = frota.filter(e => e.id !== id); 
+                } catch(e) { console.error("Erro Nuvem:", e); alert("Erro ao deletar da nuvem."); }
+                renderFrota(); 
+            } 
+        }
 
         // ==========================================
-        // 5. MOTOR AUTOCAD E ALGORITMOS ESPACIAIS
+        // 5. MOTOR AUTOCAD, ALGORITMOS ESPACIAIS E IMPORTAÇÃO
         // ==========================================
         const COLORS = { alimento: '#f59e0b', mezanino: '#8b5cf6', amarelo: '#eab308', verde: '#22c55e', azul: '#3b82f6', rosa: '#ec4899', geral: '#64748b', fundoBloco: 'rgba(30, 41, 59, 0.4)' };
         function getZonaCor(rua, modulo, prefixo) {
@@ -540,7 +656,6 @@
             for(let i = 1; i < coords.length; i++) { 
                 if(coords[i].romaneio === coords[i-1].romaneio) { 
                     let dt = coords[i].sec - coords[i-1].sec; if(dt < 0) dt += 86400; 
-                    // Para o mapa, podemos ou não ignorar a janta visualmente, mas o gargalo real de erro será ignorado no KPI
                     if(dt > maxDt) { maxDt = dt; maxIndex = i; } 
                 } 
             }
@@ -562,23 +677,10 @@
 
         function renderEngine() { if (!ctx) return; ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.save(); ctx.translate(transform.x, transform.y); ctx.scale(transform.scale, transform.scale); desenharArmazemBlueprint(); desenharRotas(); ctx.restore(); }
 
-        window.onload = function() { carregarBancoFrota(); resizeCanvas(); resetZoom(); renderFrota(); };
+        window.onload = function() { carregarBancoFrota(); resizeCanvas(); resetZoom(); };
 
         let rawCompras = []; let baseRessup = {}; let motorDadosOp = {}; let coordsPorOperador = {}; 
-        function parseLocDigitalTwin(item) {
-            try {
-                let e = String(item.loc).toUpperCase().trim(); let prefixo = e.startsWith('VR') ? 'VR' : (e.startsWith('VX') ? 'VX' : (e.startsWith('V') ? 'V' : ''));
-                let limpo = e.replace(prefixo, ''); let p = limpo.split('-'); if(p.length < 3) return null; let rua = parseInt(p[0]); let modulo = parseInt(p[1]); let posicao = parseInt(p[2]); if(isNaN(rua) || isNaN(modulo)) return null;
-                const coordGrafica = mapToGrid(rua, modulo, prefixo); const cor = getZonaCor(rua, modulo, prefixo); return { romaneio: item.romaneio, hora: item.hora, sec: timeToSeconds(item.hora), rua, modulo, posicao, prefixo, gx: coordGrafica.x, gy: coordGrafica.y, cor: cor, raw: e };
-            } catch (err) { return null; }
-        }
-
-        function calcDistanciaReal(origem, destino) {
-            if (!origem || !destino) return 0; const cfg = { rua: 3.5, modulo: 1.2, posicao: 5.6 }; let dist = 0;
-            const oMezanino = origem.prefixo === 'VX' || origem.rua >= 80; const dMezanino = destino.prefixo === 'VX' || destino.rua >= 80; if(oMezanino !== dMezanino) dist += 15; 
-            if (origem.rua === destino.rua && origem.prefixo === destino.prefixo) dist += (Math.abs(destino.modulo - origem.modulo) * cfg.modulo) + Math.abs(destino.posicao - origem.posicao) * cfg.posicao; else dist += (origem.modulo * cfg.modulo) + (Math.abs(destino.rua - origem.rua) * cfg.rua) + (destino.modulo * cfg.modulo); return isNaN(dist) ? 0 : dist;
-        }
-
+        
         document.getElementById('fileCompras').addEventListener('change', function(e) {
             const reader = new FileReader();
             reader.onload = function(evt) {
@@ -629,7 +731,6 @@
                         if(dt < 0) dt += 86400; // virou meia-noite
                         
                         // LÓGICA DE JANTA (Filtro 22:50 às 00:00)
-                        // Se a pausa for > 50 min e < 2h, e o bipe anterior ocorreu entre as 22h e as 23h30
                         if (dt >= 3000 && dt <= 7200) { 
                             let prevH = pSec / 3600;
                             if (prevH >= 22 && prevH <= 23.5) {
@@ -642,7 +743,6 @@
                         raw: coordAtual.raw, hora: coordAtual.hora, romaneio: coordAtual.romaneio, dt: dt, isJanta: isJanta
                     });
 
-                    // Verifica se é gargalo (ignora se for Janta)
                     if(i > 0 && coordAtual.romaneio === coordsOpGlobais[i-1].romaneio) {
                         if(dt > maxDtOp && !isJanta) { maxDtOp = dt; maxLocOp = coordAtual.raw; }
                     }
@@ -658,7 +758,6 @@
                     if(baseRessup[rom]) d.planejado += baseRessup[rom]; 
                 }); 
 
-                // Atualiza o KPI Global APENAS se não for o horário da janta
                 if(maxDtOp > globalInsights.maxGargaloSec && maxDtOp > 60) {
                     globalInsights.maxGargaloSec = maxDtOp; globalInsights.topGargaloName = op; globalInsights.topGargaloLoc = maxLocOp;
                 }
