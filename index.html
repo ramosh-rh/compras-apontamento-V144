@@ -612,6 +612,24 @@
         // ==========================================
         // 5. MOTOR AUTOCAD, ALGORITMOS ESPACIAIS E IMPORTAÇÃO
         // ==========================================
+        let rawCompras = []; let baseRessup = {}; let motorDadosOp = {}; let coordsPorOperador = {}; 
+        
+        // ---> INÍCIO DAS FUNÇÕES CORRIGIDAS <---
+        function parseLocDigitalTwin(item) {
+            try {
+                let e = String(item.loc).toUpperCase().trim(); let prefixo = e.startsWith('VR') ? 'VR' : (e.startsWith('VX') ? 'VX' : (e.startsWith('V') ? 'V' : ''));
+                let limpo = e.replace(prefixo, ''); let p = limpo.split('-'); if(p.length < 3) return null; let rua = parseInt(p[0]); let modulo = parseInt(p[1]); let posicao = parseInt(p[2]); if(isNaN(rua) || isNaN(modulo)) return null;
+                const coordGrafica = mapToGrid(rua, modulo, prefixo); const cor = getZonaCor(rua, modulo, prefixo); return { romaneio: item.romaneio, hora: item.hora, sec: timeToSeconds(item.hora), rua, modulo, posicao, prefixo, gx: coordGrafica.x, gy: coordGrafica.y, cor: cor, raw: e };
+            } catch (err) { return null; }
+        }
+
+        function calcDistanciaReal(origem, destino) {
+            if (!origem || !destino) return 0; const cfg = { rua: 3.5, modulo: 1.2, posicao: 5.6 }; let dist = 0;
+            const oMezanino = origem.prefixo === 'VX' || origem.rua >= 80; const dMezanino = destino.prefixo === 'VX' || destino.rua >= 80; if(oMezanino !== dMezanino) dist += 15; 
+            if (origem.rua === destino.rua && origem.prefixo === destino.prefixo) dist += (Math.abs(destino.modulo - origem.modulo) * cfg.modulo) + Math.abs(destino.posicao - origem.posicao) * cfg.posicao; else dist += (origem.modulo * cfg.modulo) + (Math.abs(destino.rua - origem.rua) * cfg.rua) + (destino.modulo * cfg.modulo); return isNaN(dist) ? 0 : dist;
+        }
+        // ---> FIM DAS FUNÇÕES CORRIGIDAS <---
+
         const COLORS = { alimento: '#f59e0b', mezanino: '#8b5cf6', amarelo: '#eab308', verde: '#22c55e', azul: '#3b82f6', rosa: '#ec4899', geral: '#64748b', fundoBloco: 'rgba(30, 41, 59, 0.4)' };
         function getZonaCor(rua, modulo, prefixo) {
             if (prefixo === 'VR') return COLORS.alimento; if (prefixo === 'VX' || rua >= 80) return COLORS.mezanino;
@@ -678,8 +696,6 @@
         function renderEngine() { if (!ctx) return; ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.save(); ctx.translate(transform.x, transform.y); ctx.scale(transform.scale, transform.scale); desenharArmazemBlueprint(); desenharRotas(); ctx.restore(); }
 
         window.onload = function() { carregarBancoFrota(); resizeCanvas(); resetZoom(); };
-
-        let rawCompras = []; let baseRessup = {}; let motorDadosOp = {}; let coordsPorOperador = {}; 
         
         document.getElementById('fileCompras').addEventListener('change', function(e) {
             const reader = new FileReader();
