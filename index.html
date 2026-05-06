@@ -3,11 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WMS - Apontamento Compras (Firebase)</title>
+    <title>WMS - Apontamento Compras (Firebase & PDF)</title>
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 
@@ -58,7 +61,7 @@
                 <div class="glass-panel relative overflow-hidden">
                     <div id="loaderImport" class="absolute inset-0 bg-slate-900/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center hidden">
                         <div class="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
-                        <span class="text-[10px] font-bold text-sky-400 uppercase tracking-widest">A sincronizar com a Nuvem...</span>
+                        <span class="text-[10px] font-bold text-sky-400 uppercase tracking-widest">A processar dados...</span>
                     </div>
 
                     <h2 class="text-sm font-black text-slate-300 uppercase tracking-widest mb-4 flex items-center">
@@ -340,6 +343,9 @@
     </div>
 
     <script>
+        // CONFIGURAÇÃO DO WORKER DO PDF.JS
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
         // ==========================================
         // 🔥 CONEXÃO OFICIAL COM O FIREBASE DA SUA EMPRESA 🔥
         // ==========================================
@@ -353,7 +359,6 @@
             appId: "1:428465365710:web:d6fca9fbc248df4d92e69f"
         };
 
-        // INICIALIZAÇÃO DO FIREBASE (NUVEM)
         let db;
         try {
             firebase.initializeApp(firebaseConfig);
@@ -366,29 +371,121 @@
             document.getElementById('statusNuvem').classList.replace("text-emerald-400", "text-red-400");
         }
 
-        // Variável Global
         window.timelineOpData = {};
         let frota = [];
         const HOJE = new Date("2026-05-04T00:00:00");
 
         // ==========================================
-        // Sincronização dos Ficheiros Excel na Nuvem
+        // LEITOR DE PDF (MOTOR DE INTELIGÊNCIA)
+        // ==========================================
+        async function lerDocumentoPDF(file, tipoImportacao) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+            let tokens = [];
+            
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                
+                let items = textContent.items;
+                // Ordenar para garantir leitura da esquerda para a direita, cima para baixo
+                items.sort((a, b) => {
+                    if (Math.abs(b.transform[5] - a.transform[5]) > 5) return b.transform[5] - a.transform[5];
+                    return a.transform[4] - b.transform[4];
+                });
+                
+                items.forEach(item => {
+                    item.str.split(/\n+/).forEach(part => {
+                        let s = part.trim();
+                        if(s) tokens.push(s);
+                    });
+                });
+            }
+
+            let opName = "Operador_PDF";
+            let romaneio = "ROM_" + Math.floor(Math.random() * 10000); // Default
+            
+            // Tenta encontrar o Nome do Operador e o Romaneio
+            for(let i=0; i < tokens.length; i++) {
+                // Se encontrar uma Data, o próximo texto grande geralmente é o nome
+                if(/^\d{2}\/\d{2}\/\d{4}$/.test(tokens[i]) && i+1 < tokens.length) {
+                    if(!/^\d+$/.test(tokens[i+1]) && !/^[\d:]+$/.test(tokens[i+1])) {
+                        if(tokens[i+1].length > 3) opName = tokens[i+1];
+                    }
+                }
+                // Se encontrar um número de 4 a 8 dígitos solto no topo, assume como Romaneio
+                if(/^\d{4,8}$/.test(tokens[i]) && romaneio.startsWith("ROM_")) {
+                    romaneio = tokens[i];
+                }
+            }
+
+            if(tipoImportacao === 'compras') {
+                let parsed = [];
+                let currentTime = null;
+                
+                for(let i=0; i < tokens.length; i++) {
+                    let t = tokens[i];
+                    // Se for HORA
+                    if(/^\d{2}:\d{2}:\d{2}$/.test(t)) {
+                        currentTime = t;
+                    } 
+                    // Se for ENDEREÇO (Ex: V29-40-071)
+                    else if(/^[A-Z]{1,2}\d{2}-\d{2}-\d{3}$/.test(t)) {
+                        let loc = t;
+                        let qtde = 1;
+                        let vol = 1;
+                        
+                        // Os próximos números costumam ser Qtde e Volume
+                        if(i+1 < tokens.length && /^\d+$/.test(tokens[i+1])) qtde = parseFloat(tokens[i+1]);
+                        if(i+2 < tokens.length && /^\d+$/.test(tokens[i+2])) vol = parseFloat(tokens[i+2]);
+                        
+                        if(!currentTime) currentTime = "00:00:00"; // Salva-vidas se faltar a hora
+                        
+                        parsed.push({
+                            romaneio: romaneio,
+                            operador: opName,
+                            hora: currentTime,
+                            loc: loc.toUpperCase(),
+                            qtde: qtde,
+                            volume: vol
+                        });
+                        currentTime = null; // Reinicia para o próximo
+                    }
+                }
+                return parsed;
+            } 
+            else if(tipoImportacao === 'ressup') {
+                // Conta o Planeado do Ressuprimento
+                let totalQtde = 0;
+                for(let i=0; i < tokens.length; i++) {
+                     if(/^[A-Z]{1,2}\d{2}-\d{2}-\d{3}$/.test(tokens[i])) {
+                         let qtde = 1;
+                         if(i+1 < tokens.length && /^\d+$/.test(tokens[i+1])) qtde = parseFloat(tokens[i+1]);
+                         totalQtde += qtde;
+                     }
+                }
+                let res = {};
+                res[romaneio] = totalQtde;
+                return res;
+            }
+        }
+
+
+        // ==========================================
+        // Sincronização dos Ficheiros na Nuvem
         // ==========================================
         async function salvarImportacaoNuvem(tipo, dados) {
             if(!db) return;
             try {
                 document.getElementById('loaderImport').classList.remove('hidden');
                 let payload = {};
-                // Guarda como texto (Stringify) para evitar lentidão e bloqueios do Firebase
                 if(tipo === 'compras') payload.compras = JSON.stringify(dados);
                 if(tipo === 'ressup') payload.ressup = JSON.stringify(dados);
-                
                 await db.collection("arquivos_importados").doc("oficial_ativo").set(payload, { merge: true });
                 document.getElementById('loaderImport').classList.add('hidden');
             } catch(e) {
-                console.error("Erro ao salvar Excel:", e);
+                console.error("Erro ao salvar ficheiro:", e);
                 document.getElementById('loaderImport').classList.add('hidden');
-                alert("O arquivo importado é muito grande para guardar na nuvem. Mas não se preocupe, o painel vai funcionar perfeitamente na sua tela agora!");
             }
         }
 
@@ -397,11 +494,9 @@
             try {
                 document.getElementById('statusNuvem').innerText = "A descarregar dados antigos...";
                 const doc = await db.collection("arquivos_importados").doc("oficial_ativo").get();
-                
                 if(doc.exists) {
                     const dadosNuvem = doc.data();
                     let precisaProcessar = false;
-
                     if(dadosNuvem.compras) {
                         rawCompras = JSON.parse(dadosNuvem.compras);
                         document.getElementById('lblCompras').innerHTML = '1. Execução (Compra) <span class="text-emerald-400">✓ Ativo da Nuvem</span>';
@@ -412,40 +507,28 @@
                         document.getElementById('lblRessup').innerHTML = '2. Planeado (Ressuprimento) <span class="text-emerald-400">✓ Ativo da Nuvem</span>';
                         precisaProcessar = true;
                     }
-
-                    if(precisaProcessar) {
-                        processarAlgoritmo();
-                    }
+                    if(precisaProcessar) processarAlgoritmo();
                 }
                 document.getElementById('statusNuvem').innerText = "ONLINE";
-            } catch(e) {
-                console.error("Erro ao descarregar Excel:", e);
-                document.getElementById('statusNuvem').innerText = "ONLINE";
-            }
+            } catch(e) { document.getElementById('statusNuvem').innerText = "ONLINE"; }
         }
 
-
         // ==========================================
-        // 1. GESTÃO DE ABAS
+        // CONTROLO DA INTERFACE (MUDAR ABAS E MODAIS)
         // ==========================================
         function mudarAba(idAba) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active', 'text-sky-400', 'text-orange-400', 'text-emerald-400', 'text-purple-400'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             const btn = document.getElementById('btn-' + idAba);
             btn.classList.add('active');
-            
             if(idAba === 'mapa') btn.classList.add('text-orange-400');
             else if(idAba === 'frota') btn.classList.add('text-emerald-400');
             else if(idAba === 'acuracidade') btn.classList.add('text-purple-400');
             else btn.classList.add('text-sky-400');
-
             document.getElementById('aba-' + idAba).classList.add('active');
             if(idAba === 'mapa') requestAnimationFrame(renderEngine);
         }
 
-        // ==========================================
-        // 2. TIMELINE E AUDITORIA (COM DETEÇÃO DE JANTA)
-        // ==========================================
         function formatarTempoExtenso(segundos) {
             if(segundos === 0) return "-";
             let h = Math.floor(segundos / 3600);
@@ -462,63 +545,24 @@
             document.getElementById('timelineOpNome').innerText = op;
             const tbody = document.getElementById('bodyTimeline');
             let html = '';
-            
             let dados = window.timelineOpData[op];
-            if(!dados || dados.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8">Nenhum dado encontrado para este operador.</td></tr>';
-                return;
-            }
-
+            if(!dados || dados.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8">Nenhum dado encontrado para este operador.</td></tr>'; return; }
             dados.forEach((p, index) => {
-                let dt = p.dt;
-                let classeLinha = "hover:bg-slate-800 transition";
-                let icone = "";
-                let rotulo = "";
-
-                if (p.isJanta) {
-                    classeLinha = "bg-blue-900/20 text-blue-300 border-l-4 border-l-blue-500 font-bold";
-                    icone = "🍽️ ";
-                    rotulo = " (Pausa p/ Janta)";
-                } else if(dt > 600) { 
-                    classeLinha = "bg-red-900/20 text-red-300 border-l-4 border-l-red-500 font-bold";
-                    icone = "⚠️ ";
-                } else if (dt > 300) { 
-                    classeLinha = "bg-orange-900/20 text-orange-300 border-l-4 border-l-orange-500 font-semibold";
-                    icone = "⏱️ ";
-                }
-
+                let dt = p.dt; let classeLinha = "hover:bg-slate-800 transition"; let icone = ""; let rotulo = "";
+                if (p.isJanta) { classeLinha = "bg-blue-900/20 text-blue-300 border-l-4 border-l-blue-500 font-bold"; icone = "🍽️ "; rotulo = " (Pausa p/ Janta)"; } 
+                else if(dt > 600) { classeLinha = "bg-red-900/20 text-red-300 border-l-4 border-l-red-500 font-bold"; icone = "⚠️ "; } 
+                else if (dt > 300) { classeLinha = "bg-orange-900/20 text-orange-300 border-l-4 border-l-orange-500 font-semibold"; icone = "⏱️ "; }
                 let tempoFormatado = index === 0 ? "Primeiro Bipe (Início)" : formatarTempoExtenso(dt) + rotulo;
-
-                html += `
-                <tr class="border-b border-slate-800/50 ${classeLinha}">
-                    <td class="p-3 font-mono opacity-50">${index + 1}</td>
-                    <td class="p-3 font-mono">${p.hora}</td>
-                    <td class="p-3 font-mono font-bold text-sky-400">${p.raw}</td>
-                    <td class="p-3 text-xs opacity-70">${p.romaneio}</td>
-                    <td class="p-3 text-right font-black tracking-wide">${icone}${tempoFormatado}</td>
-                </tr>`;
+                html += `<tr class="border-b border-slate-800/50 ${classeLinha}"><td class="p-3 font-mono opacity-50">${index + 1}</td><td class="p-3 font-mono">${p.hora}</td><td class="p-3 font-mono font-bold text-sky-400">${p.raw}</td><td class="p-3 text-xs opacity-70">${p.romaneio}</td><td class="p-3 text-right font-black tracking-wide">${icone}${tempoFormatado}</td></tr>`;
             });
-
-            tbody.innerHTML = html;
-            document.getElementById('modalTimeline').classList.remove('hidden');
-            document.getElementById('modalTimeline').classList.add('flex');
+            tbody.innerHTML = html; document.getElementById('modalTimeline').classList.remove('hidden'); document.getElementById('modalTimeline').classList.add('flex');
         }
+        function fecharModalTimeline() { document.getElementById('modalTimeline').classList.add('hidden'); document.getElementById('modalTimeline').classList.remove('flex'); }
 
-        function fecharModalTimeline() {
-            document.getElementById('modalTimeline').classList.add('hidden');
-            document.getElementById('modalTimeline').classList.remove('flex');
-        }
-
-        // ==========================================
-        // 3. EXPORTAÇÃO PDF & WHATSAPP
-        // ==========================================
         function exportarPDF() {
             if(Object.keys(motorDadosOp).length === 0) { alert("Importe os dados primeiro para gerar o PDF."); return; }
-            const elementosOcultos = document.querySelectorAll('.no-pdf');
-            elementosOcultos.forEach(el => el.style.display = 'none');
-            const element = document.getElementById('tabelaParaPDF');
-            const headers = element.querySelectorAll('.pdf-header');
-            headers.forEach(h => h.style.display = 'block');
+            const elementosOcultos = document.querySelectorAll('.no-pdf'); elementosOcultos.forEach(el => el.style.display = 'none');
+            const element = document.getElementById('tabelaParaPDF'); const headers = element.querySelectorAll('.pdf-header'); headers.forEach(h => h.style.display = 'block');
             document.getElementById('dataRelatorioPDF').innerText = "Gerado em: " + new Date().toLocaleString('pt-PT');
             const opt = { margin: 0.3, filename: 'Relatorio_Produtividade_WMS.pdf', image: { type: 'jpeg', quality: 1 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#0f172a' }, jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' } };
             html2pdf().set(opt).from(element).save().then(() => { headers.forEach(h => h.style.display = 'none'); elementosOcultos.forEach(el => el.style.display = ''); });
@@ -529,8 +573,7 @@
             let textoWa = `📊 *RANKING DE PRODUTIVIDADE E EFICIÊNCIA* 📊\n\n`;
             let ranking = Object.keys(motorDadosOp).map(op => { let d = motorDadosOp[op]; let efi = d.dist_km > 0 ? (d.qtde_real / d.dist_km).toFixed(0) : 0; return { op, pcs: d.qtde_real, km: d.dist_km.toFixed(2), efi: parseInt(efi) }; }).sort((a,b) => b.efi - a.efi); 
             ranking.slice(0, 10).forEach((r, idx) => { let medalha = idx === 0 ? "🥇" : (idx === 1 ? "🥈" : (idx === 2 ? "🥉" : "🔹")); textoWa += `${medalha} *${r.op}*\n📦 Coletado: ${r.pcs} cx | 🚶 Dist: ${r.km} km\n📈 *EFIC:* ${r.efi} pc/km\n\n`; });
-            textoWa += `📚 *O que significa EFIC (PC/KM)?*\nÉ a Eficiência por Km percorrido.`;
-            window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent(textoWa), '_blank');
+            textoWa += `📚 *O que significa EFIC (PC/KM)?*\nÉ a Eficiência por Km percorrido.`; window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent(textoWa), '_blank');
         }
 
         // ==========================================
@@ -544,20 +587,12 @@
                 if(snapshot.empty) {
                     let defaultEq = { id: Date.now(), nome: "Selecionadora 01", tipo: "Selecionadora", status: "ok", dataParada: null, capDiaria: 1500 };
                     const docRef = await db.collection("equipamentos").add(defaultEq);
-                    defaultEq.firebaseId = docRef.id;
-                    frota.push(defaultEq);
+                    defaultEq.firebaseId = docRef.id; frota.push(defaultEq);
                 } else {
-                    snapshot.forEach(doc => {
-                        let eq = doc.data();
-                        eq.firebaseId = doc.id;
-                        frota.push(eq);
-                    });
+                    snapshot.forEach(doc => { let eq = doc.data(); eq.firebaseId = doc.id; frota.push(eq); });
                 }
                 renderFrota();
-            } catch(e) {
-                console.error("Erro ao puxar da nuvem:", e);
-                alert("Falha ao sincronizar frota com a nuvem.");
-            }
+            } catch(e) {}
         }
 
         function calcularDiasParados(dataStr) { if(!dataStr) return 0; const dParada = new Date(dataStr + "T00:00:00"); let dias = Math.ceil((HOJE - dParada) / (1000 * 60 * 60 * 24)); return dias < 0 ? 0 : (dias === 0 ? 1 : dias); }
@@ -587,84 +622,28 @@
 
         function abrirModalNovoEquip() { document.getElementById('modalNovoEquip').classList.remove('hidden'); document.getElementById('modalNovoEquip').classList.add('flex'); }
         function fecharModalNovoEquip() { document.getElementById('modalNovoEquip').classList.add('hidden'); document.getElementById('modalNovoEquip').classList.remove('flex'); }
-        
         async function salvarNovoEquip() { 
             const nome = document.getElementById('novoEqNome').value.trim(); const tipo = document.getElementById('novoEqTipo').value; const cap = parseInt(document.getElementById('novoEqCapacidade').value); 
-            if(!nome || isNaN(cap) || cap <= 0) return alert("Erro nos dados"); 
-            
-            const btn = event.target;
-            btn.innerText = "A guardar na Nuvem...";
-            
+            if(!nome || isNaN(cap) || cap <= 0) return alert("Erro nos dados"); const btn = event.target; btn.innerText = "A guardar...";
             let novoEq = { id: Date.now(), nome: nome, tipo: tipo, status: 'ok', dataParada: null, capDiaria: cap };
-            try {
-                const docRef = await db.collection("equipamentos").add(novoEq);
-                novoEq.firebaseId = docRef.id;
-                frota.push(novoEq); 
-                fecharModalNovoEquip(); 
-                renderFrota(); 
-            } catch(e) { 
-                console.error("Erro Nuvem:", e); alert("Erro ao salvar na nuvem."); 
-            } finally {
-                btn.innerText = "Guardar";
-            }
+            try { const docRef = await db.collection("equipamentos").add(novoEq); novoEq.firebaseId = docRef.id; frota.push(novoEq); fecharModalNovoEquip(); renderFrota(); } catch(e) { } finally { btn.innerText = "Guardar"; }
         }
-
         function abrirModalQuebra(id) { document.getElementById('modalEqId').value = id; document.getElementById('modalData').value = "2026-05-04"; document.getElementById('modalQuebra').classList.remove('hidden'); document.getElementById('modalQuebra').classList.add('flex'); }
         function fecharModalQuebra() { document.getElementById('modalQuebra').classList.add('hidden'); document.getElementById('modalQuebra').classList.remove('flex'); }
-        
         async function confirmarQuebra() { 
             const eq = frota.find(e => e.id === parseInt(document.getElementById('modalEqId').value)); 
-            if(eq) { 
-                const dataStr = document.getElementById('modalData').value;
-                try {
-                    await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'quebrado', dataParada: dataStr });
-                    eq.status = 'quebrado'; eq.dataParada = dataStr; 
-                } catch(e) { console.error("Erro Nuvem:", e); alert("Erro ao avariar na nuvem");}
-            } 
-            fecharModalQuebra(); renderFrota(); 
+            if(eq) { const dataStr = document.getElementById('modalData').value; try { await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'quebrado', dataParada: dataStr }); eq.status = 'quebrado'; eq.dataParada = dataStr; } catch(e) { } } fecharModalQuebra(); renderFrota(); 
         }
-
         function abrirModalEdicao(id) { const eq = frota.find(e => e.id === id); if(!eq) return; document.getElementById('editEqId').value = id; document.getElementById('editEqNome').value = eq.nome; document.getElementById('editEqTipo').value = eq.tipo; document.getElementById('editEqCapacidade').value = eq.capDiaria; document.getElementById('editEqStatus').value = eq.status; document.getElementById('editEqData').value = eq.dataParada || "2026-05-04"; toggleEditData(); document.getElementById('modalEdicao').classList.remove('hidden'); document.getElementById('modalEdicao').classList.add('flex'); }
         function toggleEditData() { document.getElementById('divEditData').classList[document.getElementById('editEqStatus').value === 'quebrado' ? 'remove' : 'add']('hidden'); }
         function fecharModalEdicao() { document.getElementById('modalEdicao').classList.add('hidden'); document.getElementById('modalEdicao').classList.remove('flex'); }
-        
         async function salvarEdicao() { 
             const eq = frota.find(e => e.id === parseInt(document.getElementById('editEqId').value)); if(!eq) return; 
-            
-            const novoNome = document.getElementById('editEqNome').value; 
-            const novoTipo = document.getElementById('editEqTipo').value; 
-            const novaCap = parseInt(document.getElementById('editEqCapacidade').value); 
-            const novoStatus = document.getElementById('editEqStatus').value; 
-            const novaData = novoStatus === 'quebrado' ? document.getElementById('editEqData').value : null; 
-            
-            try {
-                await db.collection("equipamentos").doc(eq.firebaseId).update({ nome: novoNome, tipo: novoTipo, capDiaria: novaCap, status: novoStatus, dataParada: novaData });
-                eq.nome = novoNome; eq.tipo = novoTipo; eq.capDiaria = novaCap; eq.status = novoStatus; eq.dataParada = novaData;
-            } catch(e) { console.error("Erro Nuvem:", e); alert("Erro na edição da nuvem."); }
-            fecharModalEdicao(); renderFrota(); 
+            const novoNome = document.getElementById('editEqNome').value; const novoTipo = document.getElementById('editEqTipo').value; const novaCap = parseInt(document.getElementById('editEqCapacidade').value); const novoStatus = document.getElementById('editEqStatus').value; const novaData = novoStatus === 'quebrado' ? document.getElementById('editEqData').value : null; 
+            try { await db.collection("equipamentos").doc(eq.firebaseId).update({ nome: novoNome, tipo: novoTipo, capDiaria: novaCap, status: novoStatus, dataParada: novaData }); eq.nome = novoNome; eq.tipo = novoTipo; eq.capDiaria = novaCap; eq.status = novoStatus; eq.dataParada = novaData; } catch(e) { } fecharModalEdicao(); renderFrota(); 
         }
-
-        async function consertarEquip(id) { 
-            const eq = frota.find(e => e.id === id); 
-            if(eq) { 
-                try {
-                    await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'ok', dataParada: null });
-                    eq.status = 'ok'; eq.dataParada = null; 
-                } catch(e) { console.error("Erro Nuvem:", e); alert("Erro ao marcar como ok na nuvem.");}
-            } 
-            renderFrota(); 
-        }
-
-        async function excluirEquip(id) { 
-            if(confirm("Deseja excluir este equipamento permanentemente da NUVEM?")) { 
-                const eq = frota.find(e => e.id === id); 
-                try {
-                    await db.collection("equipamentos").doc(eq.firebaseId).delete();
-                    frota = frota.filter(e => e.id !== id); 
-                } catch(e) { console.error("Erro Nuvem:", e); alert("Erro ao deletar da nuvem."); }
-                renderFrota(); 
-            } 
-        }
+        async function consertarEquip(id) { const eq = frota.find(e => e.id === id); if(eq) { try { await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'ok', dataParada: null }); eq.status = 'ok'; eq.dataParada = null; } catch(e) {} } renderFrota(); }
+        async function excluirEquip(id) { if(confirm("Deseja excluir permanentemente?")) { const eq = frota.find(e => e.id === id); try { await db.collection("equipamentos").doc(eq.firebaseId).delete(); frota = frota.filter(e => e.id !== id); } catch(e) {} renderFrota(); } }
 
         // ==========================================
         // 5. MOTOR AUTOCAD E ALGORITMOS ESPACIAIS
@@ -698,15 +677,11 @@
         function resizeCanvas() { const rect = container.getBoundingClientRect(); canvas.width = rect.width; canvas.height = rect.height; if(transform.x === 0 && transform.y === 0) { transform.x = canvas.width / 2 - (25 * transform.scale); transform.y = canvas.height / 2 - (30 * transform.scale); } renderEngine(); }
         window.addEventListener('resize', resizeCanvas);
         function resetZoom() { transform.scale = Math.min(canvas.width / 50, canvas.height / 110); transform.x = canvas.width / 2 - (25 * transform.scale); transform.y = canvas.height / 2 - (30 * transform.scale) + 150; requestAnimationFrame(renderEngine); }
-        container.addEventListener('mousedown', e => { isDragging = true; startPan = { x: e.clientX - transform.x, y: e.clientY - transform.y }; });
-        container.addEventListener('mousemove', e => { if (!isDragging) return; transform.x = e.clientX - startPan.x; transform.y = e.clientY - startPan.y; requestAnimationFrame(renderEngine); });
-        container.addEventListener('mouseup', () => isDragging = false); container.addEventListener('mouseleave', () => isDragging = false);
+        container.addEventListener('mousedown', e => { isDragging = true; startPan = { x: e.clientX - transform.x, y: e.clientY - transform.y }; }); container.addEventListener('mousemove', e => { if (!isDragging) return; transform.x = e.clientX - startPan.x; transform.y = e.clientY - startPan.y; requestAnimationFrame(renderEngine); }); container.addEventListener('mouseup', () => isDragging = false); container.addEventListener('mouseleave', () => isDragging = false);
         container.addEventListener('wheel', e => { e.preventDefault(); const mouseX = e.clientX - container.getBoundingClientRect().left; const mouseY = e.clientY - container.getBoundingClientRect().top; let newScale = Math.max(3, Math.min(transform.scale * (1 + (-e.deltaY * 0.002)), 50)); transform.x = mouseX - (mouseX - transform.x) * (newScale / transform.scale); transform.y = mouseY - (mouseY - transform.y) * (newScale / transform.scale); transform.scale = newScale; requestAnimationFrame(renderEngine); });
 
         function desenharBlocoGeral(inicioX, fimX, inicioY, fimY, corFundo, corBorda, label) {
-            ctx.fillStyle = corFundo; const largura = (fimX - inicioX + 1); const altura = (fimY - inicioY + 1); ctx.fillRect(inicioX - 0.4, inicioY - 0.4, largura + 0.8, altura + 0.8);
-            ctx.fillStyle = corBorda; for(let rx = inicioX; rx <= fimX; rx++) for(let my = inicioY; my <= fimY; my++) ctx.fillRect(rx - 0.2, my - 0.4, 0.4, 0.8); 
-            if (transform.scale > 5) { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '1px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, inicioX + largura/2, inicioY + altura/2); }
+            ctx.fillStyle = corFundo; const largura = (fimX - inicioX + 1); const altura = (fimY - inicioY + 1); ctx.fillRect(inicioX - 0.4, inicioY - 0.4, largura + 0.8, altura + 0.8); ctx.fillStyle = corBorda; for(let rx = inicioX; rx <= fimX; rx++) for(let my = inicioY; my <= fimY; my++) ctx.fillRect(rx - 0.2, my - 0.4, 0.4, 0.8); if (transform.scale > 5) { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '1px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, inicioX + largura/2, inicioY + altura/2); }
         }
 
         function desenharArmazemBlueprint() {
@@ -724,14 +699,8 @@
         function timeToSeconds(timeStr) { if(!timeStr) return 0; let p = timeStr.split(':'); return parseInt(p[0]||0) * 3600 + parseInt(p[1]||0) * 60 + parseInt(p[2]||0); }
 
         function desenharRotas() {
-            const op = document.getElementById('selectRotaMapa').value; if(!op || !coordsPorOperador[op]) return; const coords = coordsPorOperador[op];
-            let maxDt = -1; let maxIndex = -1;
-            for(let i = 1; i < coords.length; i++) { 
-                if(coords[i].romaneio === coords[i-1].romaneio) { 
-                    let dt = coords[i].sec - coords[i-1].sec; if(dt < 0) dt += 86400; 
-                    if(dt > maxDt) { maxDt = dt; maxIndex = i; } 
-                } 
-            }
+            const op = document.getElementById('selectRotaMapa').value; if(!op || !coordsPorOperador[op]) return; const coords = coordsPorOperador[op]; let maxDt = -1; let maxIndex = -1;
+            for(let i = 1; i < coords.length; i++) { if(coords[i].romaneio === coords[i-1].romaneio) { let dt = coords[i].sec - coords[i-1].sec; if(dt < 0) dt += 86400; if(dt > maxDt) { maxDt = dt; maxIndex = i; } } }
             ctx.beginPath(); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 0.3; ctx.lineJoin = 'round'; ctx.setLineDash([0.5, 0.5]); ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 5;
             for(let i=0; i<coords.length; i++) { if(i === 0) ctx.moveTo(coords[i].gx, coords[i].gy); else ctx.lineTo(coords[i].gx, coords[i].gy); } ctx.stroke(); ctx.shadowBlur = 0; ctx.setLineDash([]);
             coords.forEach((p, i) => {
@@ -740,32 +709,32 @@
                 else { ctx.beginPath(); ctx.arc(p.gx, p.gy, 0.4, 0, 2*Math.PI); ctx.fillStyle = p.cor; ctx.fill(); ctx.lineWidth = 0.1; ctx.strokeStyle = '#ffffff'; ctx.stroke(); }
                 if (transform.scale > 10 || isGargalo) { 
                     ctx.save(); ctx.translate(p.gx, p.gy - 1); ctx.scale(1/transform.scale, 1/transform.scale); let labelText = `${i+1}º ${p.raw}`;
-                    if (isGargalo) { ctx.font = '900 13px Inter'; labelText = `🔥 GARGALO: +${Math.round(maxDt/60)} min em ${p.raw}`; ctx.fillStyle = 'rgba(153, 27, 27, 0.9)'; } 
-                    else { ctx.font = 'bold 11px Inter'; ctx.fillStyle = 'rgba(15, 23, 42, 0.9)'; }
-                    const txtW = ctx.measureText(labelText).width; ctx.fillRect(-txtW/2 - 6, -14, txtW + 12, 20);
-                    ctx.fillStyle = isGargalo ? '#fca5a5' : '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(labelText, 0, -3); ctx.restore();
+                    if (isGargalo) { ctx.font = '900 13px Inter'; labelText = `🔥 GARGALO: +${Math.round(maxDt/60)} min em ${p.raw}`; ctx.fillStyle = 'rgba(153, 27, 27, 0.9)'; } else { ctx.font = 'bold 11px Inter'; ctx.fillStyle = 'rgba(15, 23, 42, 0.9)'; }
+                    const txtW = ctx.measureText(labelText).width; ctx.fillRect(-txtW/2 - 6, -14, txtW + 12, 20); ctx.fillStyle = isGargalo ? '#fca5a5' : '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(labelText, 0, -3); ctx.restore();
                 }
             });
         }
-
         function renderEngine() { if (!ctx) return; ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.save(); ctx.translate(transform.x, transform.y); ctx.scale(transform.scale, transform.scale); desenharArmazemBlueprint(); desenharRotas(); ctx.restore(); }
 
-        // BOOT DO SISTEMA: CARREGA FROTA E IMPORTAÇÕES AUTOMATICAMENTE
-        window.onload = function() { 
-            carregarBancoFrota(); 
-            carregarImportacoesNuvem(); 
-            resizeCanvas(); 
-            resetZoom(); 
-        };
+        window.onload = function() { carregarBancoFrota(); carregarImportacoesNuvem(); resizeCanvas(); resetZoom(); };
         
-        document.getElementById('fileCompras').addEventListener('change', function(e) {
+        // ==========================================
+        // GATILHOS DE IMPORTAÇÃO (ACEITA EXCEL E PDF)
+        // ==========================================
+        document.getElementById('fileCompras').addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if(!file) return;
             
-            // TRAVA DE SEGURANÇA PARA PDF
             if(file.name.toLowerCase().endsWith('.pdf')) {
-                alert("Formato PDF reconhecido na interface! 📄\n\nNo entanto, para calcular distâncias e produtividade, o motor matemático precisa de ler as informações em colunas exatas. O formato PDF não tem colunas definidas (funciona como uma fotografia).\n\nPor favor, envie-me depois um exemplo do texto do seu PDF para eu programar um tradutor específico para a sua operação.\n\nPor enquanto, continue a utilizar a versão em Excel (.xlsx) para rodar o painel.");
-                document.getElementById('lblCompras').innerHTML = '1. Execução (Compra) <span class="text-orange-400">⚠️ PDF Requer Mapeamento de Layout</span>';
+                document.getElementById('lblCompras').innerHTML = '1. Execução (Compra) <span class="text-yellow-400">A processar PDF...</span>';
+                try {
+                    rawCompras = await lerDocumentoPDF(file, 'compras');
+                    processarAlgoritmo();
+                    salvarImportacaoNuvem('compras', rawCompras);
+                    document.getElementById('lblCompras').innerHTML = '1. Execução (Compra) <span class="text-emerald-400">✓ PDF Lido</span>';
+                } catch(err) {
+                    alert("Erro ao ler o PDF."); document.getElementById('lblCompras').innerHTML = '1. Execução (Compra) <span class="text-red-400">Erro no PDF</span>';
+                }
                 return;
             }
 
@@ -778,20 +747,24 @@
                     if (!col1 && col2 && col2 !== "Nome" && !col3.includes(':')) currentOp = col2;
                     if (col3.includes(':') && col4.toUpperCase().startsWith('V')) { let q = parseFloat(String(row[5]||"0").replace(',', '.')); let v = parseFloat(String(row[6]||"0").replace(',', '.')); rawCompras.push({ romaneio: currentRomaneio, operador: currentOp, hora: col3, loc: col4.toUpperCase(), qtde: isNaN(q)?0:q, volume: isNaN(v)?0:v }); }
                 }); 
-                processarAlgoritmo();
-                salvarImportacaoNuvem('compras', rawCompras);
-                document.getElementById('lblCompras').innerHTML = '1. Execução (Compra) <span class="text-sky-400">✓ Excel Lido</span>';
+                processarAlgoritmo(); salvarImportacaoNuvem('compras', rawCompras); document.getElementById('lblCompras').innerHTML = '1. Execução (Compra) <span class="text-sky-400">✓ Excel Lido</span>';
             }; reader.readAsArrayBuffer(file);
         });
 
-        document.getElementById('fileRessup').addEventListener('change', function(e) {
+        document.getElementById('fileRessup').addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if(!file) return;
 
-            // TRAVA DE SEGURANÇA PARA PDF
             if(file.name.toLowerCase().endsWith('.pdf')) {
-                alert("Formato PDF reconhecido na interface! 📄\n\nNo entanto, para cruzar dados, o motor matemático precisa de colunas exatas. O formato PDF não tem colunas definidas.\n\nPor favor, envie-me depois um exemplo do texto do seu PDF para eu programar um tradutor.\n\nPor enquanto, continue a utilizar o Excel (.xlsx).");
-                document.getElementById('lblRessup').innerHTML = '2. Planeado (Ressuprimento) <span class="text-orange-400">⚠️ PDF Requer Mapeamento</span>';
+                document.getElementById('lblRessup').innerHTML = '2. Planeado (Ressup) <span class="text-yellow-400">A processar PDF...</span>';
+                try {
+                    baseRessup = await lerDocumentoPDF(file, 'ressup');
+                    processarAlgoritmo();
+                    salvarImportacaoNuvem('ressup', baseRessup);
+                    document.getElementById('lblRessup').innerHTML = '2. Planeado (Ressup) <span class="text-emerald-400">✓ PDF Lido</span>';
+                } catch(err) {
+                    alert("Erro ao ler o PDF."); document.getElementById('lblRessup').innerHTML = '2. Planeado (Ressup) <span class="text-red-400">Erro no PDF</span>';
+                }
                 return;
             }
 
@@ -799,9 +772,7 @@
             reader.onload = function(evt) {
                 const data = XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).Sheets[XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).SheetNames[0]], {header: 1, raw: false, defval: ""});
                 baseRessup = {}; data.forEach(row => { let colRomaneio = String(row[2] || "").trim(); if(colRomaneio.length > 3) { let q = parseFloat(String(row[6]||"0").replace(',', '.')); if(!isNaN(q)) baseRessup[colRomaneio] = (baseRessup[colRomaneio] || 0) + q; } }); 
-                processarAlgoritmo();
-                salvarImportacaoNuvem('ressup', baseRessup);
-                document.getElementById('lblRessup').innerHTML = '2. Planeado (Ressuprimento) <span class="text-sky-400">✓ Excel Lido</span>';
+                processarAlgoritmo(); salvarImportacaoNuvem('ressup', baseRessup); document.getElementById('lblRessup').innerHTML = '2. Planeado (Ressuprimento) <span class="text-sky-400">✓ Excel Lido</span>';
             }; reader.readAsArrayBuffer(file);
         });
 
@@ -817,53 +788,24 @@
             let globals = { dist_m: 0, pcs: 0, vol: 0, plan: 0 };
             
             Object.keys(motorDadosOp).forEach(op => { 
-                let d = motorDadosOp[op]; 
-                let maxDtOp = -1; let maxLocOp = "";
-                
-                window.timelineOpData[op] = [];
-                let coordsOpGlobais = coordsPorOperador[op] || [];
-                coordsOpGlobais.sort((a,b) => a.sec - b.sec); 
+                let d = motorDadosOp[op]; let maxDtOp = -1; let maxLocOp = ""; window.timelineOpData[op] = []; let coordsOpGlobais = coordsPorOperador[op] || []; coordsOpGlobais.sort((a,b) => a.sec - b.sec); 
                 
                 coordsOpGlobais.forEach((coordAtual, i) => {
-                    let dt = 0;
-                    let isJanta = false;
-
+                    let dt = 0; let isJanta = false;
                     if(i > 0) {
-                        let pSec = coordsOpGlobais[i-1].sec;
-                        dt = coordAtual.sec - pSec;
-                        if(dt < 0) dt += 86400; // virou meia-noite
-                        
-                        // LÓGICA DE JANTA (Filtro 22:50 às 00:00)
-                        if (dt >= 3000 && dt <= 7200) { 
-                            let prevH = pSec / 3600;
-                            if (prevH >= 22 && prevH <= 23.5) {
-                                isJanta = true;
-                            }
-                        }
+                        let pSec = coordsOpGlobais[i-1].sec; dt = coordAtual.sec - pSec; if(dt < 0) dt += 86400; // virou meia-noite
+                        if (dt >= 3000 && dt <= 7200) { let prevH = pSec / 3600; if (prevH >= 22 && prevH <= 23.5) { isJanta = true; } }
                     }
-                    
-                    window.timelineOpData[op].push({
-                        raw: coordAtual.raw, hora: coordAtual.hora, romaneio: coordAtual.romaneio, dt: dt, isJanta: isJanta
-                    });
-
-                    if(i > 0 && coordAtual.romaneio === coordsOpGlobais[i-1].romaneio) {
-                        if(dt > maxDtOp && !isJanta) { maxDtOp = dt; maxLocOp = coordAtual.raw; }
-                    }
+                    window.timelineOpData[op].push({ raw: coordAtual.raw, hora: coordAtual.hora, romaneio: coordAtual.romaneio, dt: dt, isJanta: isJanta });
+                    if(i > 0 && coordAtual.romaneio === coordsOpGlobais[i-1].romaneio) { if(dt > maxDtOp && !isJanta) { maxDtOp = dt; maxLocOp = coordAtual.raw; } }
                 });
 
                 d.romaneios.forEach(rom => { 
-                    let coords = rotasPorRomaneio[rom]; 
-                    if(coords && coords.length > 0) { 
-                        for(let i = 1; i < coords.length; i++) { 
-                            let dist = calcDistanciaReal(coords[i-1], coords[i]); d.dist_metros += dist; globals.dist_m += dist; 
-                        } 
-                    } 
+                    let coords = rotasPorRomaneio[rom]; if(coords && coords.length > 0) { for(let i = 1; i < coords.length; i++) { let dist = calcDistanciaReal(coords[i-1], coords[i]); d.dist_metros += dist; globals.dist_m += dist; } } 
                     if(baseRessup[rom]) d.planejado += baseRessup[rom]; 
                 }); 
 
-                if(maxDtOp > globalInsights.maxGargaloSec && maxDtOp > 60) {
-                    globalInsights.maxGargaloSec = maxDtOp; globalInsights.topGargaloName = op; globalInsights.topGargaloLoc = maxLocOp;
-                }
+                if(maxDtOp > globalInsights.maxGargaloSec && maxDtOp > 60) { globalInsights.maxGargaloSec = maxDtOp; globalInsights.topGargaloName = op; globalInsights.topGargaloLoc = maxLocOp; }
 
                 d.dist_km = d.dist_metros / 1000; globals.pcs += d.qtde_real; globals.vol += d.vol_real; 
                 let efiOp = d.dist_km > 0 ? (d.qtde_real / d.dist_km) : 0;
@@ -878,25 +820,14 @@
             document.getElementById('kpi_pct').innerText = pct.toFixed(1) + '%';
             document.getElementById('kpi_top_efi').innerText = globalInsights.topEficName;
             
-            if(globalInsights.maxGargaloSec > 0) {
-                document.getElementById('kpi_gargalo_nome').innerText = globalInsights.topGargaloName;
-                document.getElementById('kpi_gargalo_detalhe').innerText = `Perdeu ${Math.round(globalInsights.maxGargaloSec/60)} min em ${globalInsights.topGargaloLoc}`;
-            } else {
-                document.getElementById('kpi_gargalo_nome').innerText = "-";
-                document.getElementById('kpi_gargalo_detalhe').innerText = "Sem gargalos anormais";
-            }
+            if(globalInsights.maxGargaloSec > 0) { document.getElementById('kpi_gargalo_nome').innerText = globalInsights.topGargaloName; document.getElementById('kpi_gargalo_detalhe').innerText = `Perdeu ${Math.round(globalInsights.maxGargaloSec/60)} min em ${globalInsights.topGargaloLoc}`; } 
+            else { document.getElementById('kpi_gargalo_nome').innerText = "-"; document.getElementById('kpi_gargalo_detalhe').innerText = "Sem gargalos anormais"; }
 
             const tb = document.querySelector('#tbAcuracidade tbody'); let r = ""; 
             Object.keys(motorDadosOp).sort((a,b)=> motorDadosOp[b].qtde_real - motorDadosOp[a].qtde_real).forEach(op => { 
                 let d = motorDadosOp[op]; let falta = d.planejado > 0 ? d.planejado - d.qtde_real : 0; let efi = d.dist_km > 0 ? (d.qtde_real / d.dist_km).toFixed(0) : 0; 
                 r += `<tr class="text-slate-300">
-                    <td class="text-white font-bold">${op}</td>
-                    <td class="text-right text-slate-400 font-mono">${d.dist_km.toFixed(3)}</td>
-                    <td class="text-right text-slate-500 font-mono">${d.planejado > 0 ? d.planejado : '-'}</td>
-                    <td class="text-right text-sky-400 font-mono font-bold">${d.qtde_real}</td>
-                    <td class="text-right font-mono ${falta>0?'text-red-400 font-bold':'text-slate-600'}">${falta>0?falta:'0'}</td>
-                    <td class="text-center font-black text-emerald-400 font-mono">${efi}</td>
-                    <td class="text-center no-pdf"><button onclick="abrirModalTimeline('${op}')" class="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded shadow-lg transition text-xs font-bold w-full">🔍 Linha de Tempo</button></td>
+                    <td class="text-white font-bold">${op}</td><td class="text-right text-slate-400 font-mono">${d.dist_km.toFixed(3)}</td><td class="text-right text-slate-500 font-mono">${d.planejado > 0 ? d.planejado : '-'}</td><td class="text-right text-sky-400 font-mono font-bold">${d.qtde_real}</td><td class="text-right font-mono ${falta>0?'text-red-400 font-bold':'text-slate-600'}">${falta>0?falta:'0'}</td><td class="text-center font-black text-emerald-400 font-mono">${efi}</td><td class="text-center no-pdf"><button onclick="abrirModalTimeline('${op}')" class="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded shadow-lg transition text-xs font-bold w-full">🔍 Linha de Tempo</button></td>
                 </tr>`; 
             }); 
             tb.innerHTML = r || '<tr><td colspan="7" class="text-center py-8">Vazio</td></tr>';
