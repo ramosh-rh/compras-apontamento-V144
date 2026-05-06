@@ -376,7 +376,7 @@
         const HOJE = new Date("2026-05-04T00:00:00");
 
         // ==========================================
-        // LEITOR DE PDF (MOTOR DE INTELIGÊNCIA)
+        // LEITOR DE PDF (MOTOR INTELIGENTE DE NOME)
         // ==========================================
         async function lerDocumentoPDF(file, tipoImportacao) {
             const arrayBuffer = await file.arrayBuffer();
@@ -388,7 +388,6 @@
                 const textContent = await page.getTextContent();
                 
                 let items = textContent.items;
-                // Ordenar para garantir leitura da esquerda para a direita, cima para baixo
                 items.sort((a, b) => {
                     if (Math.abs(b.transform[5] - a.transform[5]) > 5) return b.transform[5] - a.transform[5];
                     return a.transform[4] - b.transform[4];
@@ -402,60 +401,80 @@
                 });
             }
 
-            let opName = "Operador_PDF";
-            let romaneio = "ROM_" + Math.floor(Math.random() * 10000); // Default
-            
-            // Tenta encontrar o Nome do Operador e o Romaneio
-            for(let i=0; i < tokens.length; i++) {
-                // Se encontrar uma Data, o próximo texto grande geralmente é o nome
-                if(/^\d{2}\/\d{2}\/\d{4}$/.test(tokens[i]) && i+1 < tokens.length) {
-                    if(!/^\d+$/.test(tokens[i+1]) && !/^[\d:]+$/.test(tokens[i+1])) {
-                        if(tokens[i+1].length > 3) opName = tokens[i+1];
+            // Função que limpa horas e datas do texto para verificar se sobrou apenas um nome de colaborador
+            function extractPossibleName(str, minLen = 8) {
+                let s = str.replace(/\d{2}:\d{2}:\d{2}/g, '').replace(/\d{2}\/\d{2}\/\d{4}/g, '').trim();
+                // Apenas letras maiúsculas e espaços
+                if(s.length >= minLen && /^[A-ZÀ-Ú\s]+$/.test(s)) {
+                    // Ignora palavras reservadas do cabeçalho do ERP
+                    if(!s.includes("TOTAL") && !s.includes("BUSINESS") && !s.includes("SUITE") && !s.includes("MOVIMENTO") && !s.includes("VALOR") && !s.includes("QTDE") && !s.includes("ROMANEIO")) {
+                        return s;
                     }
                 }
-                // Se encontrar um número de 4 a 8 dígitos solto no topo, assume como Romaneio
-                if(/^\d{4,8}$/.test(tokens[i]) && romaneio.startsWith("ROM_")) {
-                    romaneio = tokens[i];
-                }
+                return null;
             }
 
+            let currentOp = "Operador_PDF";
+            let currentRom = "ROM_" + Math.floor(Math.random() * 10000);
+            let currentTime = null;
+            
             if(tipoImportacao === 'compras') {
                 let parsed = [];
-                let currentTime = null;
                 
                 for(let i=0; i < tokens.length; i++) {
                     let t = tokens[i];
-                    // Se for HORA
-                    if(/^\d{2}:\d{2}:\d{2}$/.test(t)) {
-                        currentTime = t;
-                    } 
-                    // Se for ENDEREÇO (Ex: V29-40-071)
-                    else if(/^[A-Z]{1,2}\d{2}-\d{2}-\d{3}$/.test(t)) {
+
+                    // Tentar capturar o Nome dinamicamente na linha atual
+                    let pName = extractPossibleName(t, 8);
+                    if(pName) {
+                        currentOp = pName;
+                        // Verifica se o sobrenome foi cortado para o próximo token (ex: MONIQUE e depois THEODORO)
+                        if(i+1 < tokens.length) {
+                            let pNext = extractPossibleName(tokens[i+1], 3);
+                            if(pNext) {
+                                currentOp += " " + pNext;
+                                i++; // consome o próximo token
+                            }
+                        }
+                    }
+
+                    // Tentar capturar o Romaneio
+                    if(/^\d{4,8}$/.test(t) && currentRom.startsWith("ROM_")) {
+                        currentRom = t;
+                    }
+
+                    // Extrair Hora
+                    let timeMatch = t.match(/\d{2}:\d{2}:\d{2}/);
+                    if(timeMatch) {
+                        currentTime = timeMatch[0];
+                    }
+                    
+                    // Extrair Endereço (V21-40-031)
+                    if(/^[A-Z]{1,2}\d{2}-\d{2}-\d{3}$/.test(t)) {
                         let loc = t;
                         let qtde = 1;
                         let vol = 1;
                         
-                        // Os próximos números costumam ser Qtde e Volume
+                        // Tenta ler Quantidade e Volume que geralmente vêm logo abaixo
                         if(i+1 < tokens.length && /^\d+$/.test(tokens[i+1])) qtde = parseFloat(tokens[i+1]);
                         if(i+2 < tokens.length && /^\d+$/.test(tokens[i+2])) vol = parseFloat(tokens[i+2]);
                         
-                        if(!currentTime) currentTime = "00:00:00"; // Salva-vidas se faltar a hora
+                        if(!currentTime) currentTime = "00:00:00"; 
                         
                         parsed.push({
-                            romaneio: romaneio,
-                            operador: opName,
+                            romaneio: currentRom,
+                            operador: currentOp,
                             hora: currentTime,
                             loc: loc.toUpperCase(),
                             qtde: qtde,
                             volume: vol
                         });
-                        currentTime = null; // Reinicia para o próximo
+                        currentTime = null; 
                     }
                 }
                 return parsed;
             } 
             else if(tipoImportacao === 'ressup') {
-                // Conta o Planeado do Ressuprimento
                 let totalQtde = 0;
                 for(let i=0; i < tokens.length; i++) {
                      if(/^[A-Z]{1,2}\d{2}-\d{2}-\d{3}$/.test(tokens[i])) {
@@ -465,11 +484,10 @@
                      }
                 }
                 let res = {};
-                res[romaneio] = totalQtde;
+                res[currentRom] = totalQtde;
                 return res;
             }
         }
-
 
         // ==========================================
         // Sincronização dos Ficheiros na Nuvem
@@ -577,7 +595,7 @@
         }
 
         // ==========================================
-        // 4. GESTÃO DE FROTA COM FIREBASE (NUVEM)
+        // GESTÃO DE FROTA COM FIREBASE (NUVEM)
         // ==========================================
         async function carregarBancoFrota() {
             if(!db) return;
@@ -646,7 +664,7 @@
         async function excluirEquip(id) { if(confirm("Deseja excluir permanentemente?")) { const eq = frota.find(e => e.id === id); try { await db.collection("equipamentos").doc(eq.firebaseId).delete(); frota = frota.filter(e => e.id !== id); } catch(e) {} renderFrota(); } }
 
         // ==========================================
-        // 5. MOTOR AUTOCAD E ALGORITMOS ESPACIAIS
+        // MOTOR AUTOCAD E ALGORITMOS ESPACIAIS
         // ==========================================
         let rawCompras = []; let baseRessup = {}; let motorDadosOp = {}; let coordsPorOperador = {}; 
         
@@ -793,7 +811,7 @@
                 coordsOpGlobais.forEach((coordAtual, i) => {
                     let dt = 0; let isJanta = false;
                     if(i > 0) {
-                        let pSec = coordsOpGlobais[i-1].sec; dt = coordAtual.sec - pSec; if(dt < 0) dt += 86400; // virou meia-noite
+                        let pSec = coordsOpGlobais[i-1].sec; dt = coordAtual.sec - pSec; if(dt < 0) dt += 86400; 
                         if (dt >= 3000 && dt <= 7200) { let prevH = pSec / 3600; if (prevH >= 22 && prevH <= 23.5) { isJanta = true; } }
                     }
                     window.timelineOpData[op].push({ raw: coordAtual.raw, hora: coordAtual.hora, romaneio: coordAtual.romaneio, dt: dt, isJanta: isJanta });
