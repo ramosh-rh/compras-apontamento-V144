@@ -67,11 +67,11 @@
                     <div class="space-y-4">
                         <div class="relative group">
                             <label id="lblCompras" class="block text-[10px] font-bold text-slate-500 uppercase mb-1">1. Execução (Compra)</label>
-                            <input type="file" id="fileCompras" accept=".xlsx, .xls" class="block w-full text-xs text-white file:py-2 file:px-3 file:rounded file:border-0 file:bg-sky-600 file:text-white file:font-bold cursor-pointer bg-slate-900 border border-slate-700 rounded">
+                            <input type="file" id="fileCompras" accept=".xlsx, .xls, .pdf" class="block w-full text-xs text-white file:py-2 file:px-3 file:rounded file:border-0 file:bg-sky-600 file:text-white file:font-bold cursor-pointer bg-slate-900 border border-slate-700 rounded">
                         </div>
                         <div class="relative group">
                             <label id="lblRessup" class="block text-[10px] font-bold text-slate-500 uppercase mb-1">2. Planeado (Ressuprimento)</label>
-                            <input type="file" id="fileRessup" accept=".xlsx, .xls" class="block w-full text-xs text-white file:py-2 file:px-3 file:rounded file:border-0 file:bg-teal-600 file:text-white file:font-bold cursor-pointer bg-slate-900 border border-slate-700 rounded">
+                            <input type="file" id="fileRessup" accept=".xlsx, .xls, .pdf" class="block w-full text-xs text-white file:py-2 file:px-3 file:rounded file:border-0 file:bg-teal-600 file:text-white file:font-bold cursor-pointer bg-slate-900 border border-slate-700 rounded">
                         </div>
                     </div>
                 </div>
@@ -759,6 +759,16 @@
         };
         
         document.getElementById('fileCompras').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            
+            // TRAVA DE SEGURANÇA PARA PDF
+            if(file.name.toLowerCase().endsWith('.pdf')) {
+                alert("Formato PDF reconhecido na interface! 📄\n\nNo entanto, para calcular distâncias e produtividade, o motor matemático precisa de ler as informações em colunas exatas. O formato PDF não tem colunas definidas (funciona como uma fotografia).\n\nPor favor, envie-me depois um exemplo do texto do seu PDF para eu programar um tradutor específico para a sua operação.\n\nPor enquanto, continue a utilizar a versão em Excel (.xlsx) para rodar o painel.");
+                document.getElementById('lblCompras').innerHTML = '1. Execução (Compra) <span class="text-orange-400">⚠️ PDF Requer Mapeamento de Layout</span>';
+                return;
+            }
+
             const reader = new FileReader();
             reader.onload = function(evt) {
                 const data = XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).Sheets[XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).SheetNames[0]], {header: 1, raw: false, defval: ""});
@@ -771,10 +781,20 @@
                 processarAlgoritmo();
                 salvarImportacaoNuvem('compras', rawCompras);
                 document.getElementById('lblCompras').innerHTML = '1. Execução (Compra) <span class="text-sky-400">✓ Excel Lido</span>';
-            }; reader.readAsArrayBuffer(e.target.files[0]);
+            }; reader.readAsArrayBuffer(file);
         });
 
         document.getElementById('fileRessup').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+
+            // TRAVA DE SEGURANÇA PARA PDF
+            if(file.name.toLowerCase().endsWith('.pdf')) {
+                alert("Formato PDF reconhecido na interface! 📄\n\nNo entanto, para cruzar dados, o motor matemático precisa de colunas exatas. O formato PDF não tem colunas definidas.\n\nPor favor, envie-me depois um exemplo do texto do seu PDF para eu programar um tradutor.\n\nPor enquanto, continue a utilizar o Excel (.xlsx).");
+                document.getElementById('lblRessup').innerHTML = '2. Planeado (Ressuprimento) <span class="text-orange-400">⚠️ PDF Requer Mapeamento</span>';
+                return;
+            }
+
             const reader = new FileReader();
             reader.onload = function(evt) {
                 const data = XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).Sheets[XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).SheetNames[0]], {header: 1, raw: false, defval: ""});
@@ -782,7 +802,7 @@
                 processarAlgoritmo();
                 salvarImportacaoNuvem('ressup', baseRessup);
                 document.getElementById('lblRessup').innerHTML = '2. Planeado (Ressuprimento) <span class="text-sky-400">✓ Excel Lido</span>';
-            }; reader.readAsArrayBuffer(e.target.files[0]);
+            }; reader.readAsArrayBuffer(file);
         });
 
         function processarAlgoritmo() {
