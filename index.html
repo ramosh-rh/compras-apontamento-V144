@@ -376,7 +376,7 @@
         const HOJE = new Date("2026-05-04T00:00:00");
 
         // ==========================================
-        // LEITOR DE PDF (MOTOR INTELIGENTE DE NOME)
+        // LEITOR DE PDF (MOTOR INTELIGENTE CORRIGIDO)
         // ==========================================
         async function lerDocumentoPDF(file, tipoImportacao) {
             const arrayBuffer = await file.arrayBuffer();
@@ -401,92 +401,81 @@
                 });
             }
 
-            // Função que limpa horas e datas do texto para verificar se sobrou apenas um nome de colaborador
-            function extractPossibleName(str, minLen = 8) {
-                let s = str.replace(/\d{2}:\d{2}:\d{2}/g, '').replace(/\d{2}\/\d{2}\/\d{4}/g, '').trim();
-                // Apenas letras maiúsculas e espaços
-                if(s.length >= minLen && /^[A-ZÀ-Ú\s]+$/.test(s)) {
-                    // Ignora palavras reservadas do cabeçalho do ERP
-                    if(!s.includes("TOTAL") && !s.includes("BUSINESS") && !s.includes("SUITE") && !s.includes("MOVIMENTO") && !s.includes("VALOR") && !s.includes("QTDE") && !s.includes("ROMANEIO")) {
-                        return s;
-                    }
-                }
-                return null;
-            }
-
-            let currentOp = "Operador_PDF";
+            let currentOp = "Desconhecido";
             let currentRom = "ROM_" + Math.floor(Math.random() * 10000);
-            let currentTime = null;
+            let currentTime = "00:00:00";
             
-            if(tipoImportacao === 'compras') {
-                let parsed = [];
-                
-                for(let i=0; i < tokens.length; i++) {
-                    let t = tokens[i];
+            let parsedCompras = [];
+            let ressupDict = {};
+            
+            for(let i=0; i < tokens.length; i++) {
+                let t = tokens[i].trim();
+                if(!t) continue;
 
-                    // Tentar capturar o Nome dinamicamente na linha atual
-                    let pName = extractPossibleName(t, 8);
-                    if(pName) {
-                        currentOp = pName;
-                        // Verifica se o sobrenome foi cortado para o próximo token (ex: MONIQUE e depois THEODORO)
-                        if(i+1 < tokens.length) {
-                            let pNext = extractPossibleName(tokens[i+1], 3);
-                            if(pNext) {
-                                currentOp += " " + pNext;
-                                i++; // consome o próximo token
+                // 1. ANÁLISE DE NOME DO OPERADOR (LIMPEZA INTELIGENTE)
+                // Removemos horas ou datas que possam vir "coladas" no nome por erro de exportação do ERP
+                let limpo = t.toUpperCase().replace(/\d{2}:\d{2}:\d{2}/g, '').replace(/\d{2}\/\d{2}\/\d{4}/g, '').trim();
+                
+                // Exigimos no mínimo 5 letras e garantimos que a string NÃO começa com número
+                if (limpo.length >= 5 && !/^\d/.test(limpo)) {
+                    // Ignora cabeçalhos nativos do Procfit
+                    const invalidos = ["TOTAL", "BUSINESS", "SUITE", "MOVIMENTO", "VALOR", "QTDE", "ROMANEIO", "NOME", "ORIGEM", "HORA", "USUARIO", "ANALISE", "RELATORIO", "LOC", "PÁGINA", "PAGE", "UNIT"];
+                    let isValido = true;
+                    invalidos.forEach(inv => { if(limpo.includes(inv)) isValido = false; });
+                    
+                    // Conta quantas letras puras existem na string limpa
+                    let apenasLetras = limpo.replace(/[^A-ZÀ-Ú]/g, '');
+                    
+                    // Se mais de metade da string for letras e não for cabeçalho, é o nome do Colaborador!
+                    if (isValido && apenasLetras.length >= (limpo.length * 0.5)) {
+                        currentOp = limpo; 
+                        
+                        // O Romaneio costuma aparecer nas próximas linhas
+                        for(let j = i+1; j <= i+6 && j < tokens.length; j++) {
+                            let nt = tokens[j].trim();
+                            if (/^\d{4,8}$/.test(nt)) {
+                                currentRom = nt;
+                                break;
                             }
                         }
                     }
+                }
 
-                    // Tentar capturar o Romaneio
-                    if(/^\d{4,8}$/.test(t) && currentRom.startsWith("ROM_")) {
-                        currentRom = t;
-                    }
-
-                    // Extrair Hora
-                    let timeMatch = t.match(/\d{2}:\d{2}:\d{2}/);
-                    if(timeMatch) {
-                        currentTime = timeMatch[0];
-                    }
+                // 2. EXTRATOR DE HORA
+                let timeMatch = t.match(/\d{2}:\d{2}:\d{2}/);
+                if(timeMatch) {
+                    currentTime = timeMatch[0];
+                }
+                
+                // 3. EXTRATOR DE ENDEREÇO (Ação Principal)
+                if(/^[A-Z]{1,2}\d{2}-\d{2}-\d{3}$/i.test(t)) {
+                    let loc = t.toUpperCase();
+                    let qtde = 1;
+                    let vol = 1;
                     
-                    // Extrair Endereço (V21-40-031)
-                    if(/^[A-Z]{1,2}\d{2}-\d{2}-\d{3}$/.test(t)) {
-                        let loc = t;
-                        let qtde = 1;
-                        let vol = 1;
-                        
-                        // Tenta ler Quantidade e Volume que geralmente vêm logo abaixo
-                        if(i+1 < tokens.length && /^\d+$/.test(tokens[i+1])) qtde = parseFloat(tokens[i+1]);
-                        if(i+2 < tokens.length && /^\d+$/.test(tokens[i+2])) vol = parseFloat(tokens[i+2]);
-                        
-                        if(!currentTime) currentTime = "00:00:00"; 
-                        
-                        parsed.push({
+                    // Pega Quantidade (próximo número inteiro ou float)
+                    if(i+1 < tokens.length && /^\d+$/.test(tokens[i+1].trim())) qtde = parseFloat(tokens[i+1].trim());
+                    if(i+2 < tokens.length && /^\d+$/.test(tokens[i+2].trim())) vol = parseFloat(tokens[i+2].trim());
+                    
+                    if(tipoImportacao === 'compras') {
+                        parsedCompras.push({
                             romaneio: currentRom,
                             operador: currentOp,
                             hora: currentTime,
-                            loc: loc.toUpperCase(),
+                            loc: loc,
                             qtde: qtde,
                             volume: vol
                         });
-                        currentTime = null; 
+                    } else if (tipoImportacao === 'ressup') {
+                        if(!ressupDict[currentRom]) ressupDict[currentRom] = 0;
+                        ressupDict[currentRom] += qtde;
                     }
+                    
+                    currentTime = "00:00:00"; 
                 }
-                return parsed;
-            } 
-            else if(tipoImportacao === 'ressup') {
-                let totalQtde = 0;
-                for(let i=0; i < tokens.length; i++) {
-                     if(/^[A-Z]{1,2}\d{2}-\d{2}-\d{3}$/.test(tokens[i])) {
-                         let qtde = 1;
-                         if(i+1 < tokens.length && /^\d+$/.test(tokens[i+1])) qtde = parseFloat(tokens[i+1]);
-                         totalQtde += qtde;
-                     }
-                }
-                let res = {};
-                res[currentRom] = totalQtde;
-                return res;
             }
+
+            return tipoImportacao === 'compras' ? parsedCompras : ressupDict;
         }
 
         // ==========================================
