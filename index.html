@@ -83,11 +83,15 @@
                     <h2 class="text-sm font-black text-slate-300 uppercase tracking-widest mb-3">Zonas Espaciais</h2>
                     <div class="space-y-3 text-[11px] font-bold uppercase text-slate-400">
                         <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#f59e0b] shadow-[0_0_8px_#f59e0b] mr-3"></div> Alimentos</div>
+                        <div class="text-[9px] text-slate-500 tracking-widest pt-1">— Mezanino —</div>
+                        <div class="flex items-center pl-2"><div class="w-3 h-3 rounded bg-[#fbbf24] shadow-[0_0_8px_#fbbf24] mr-3"></div> 1° Andar · Volumoso</div>
+                        <div class="flex items-center pl-2"><div class="w-3 h-3 rounded bg-[#a78bfa] shadow-[0_0_8px_#a78bfa] mr-3"></div> 2° Andar · Controlado</div>
+                        <div class="flex items-center pl-2"><div class="w-3 h-3 rounded bg-[#f472b6] shadow-[0_0_8px_#f472b6] mr-3"></div> 3° Andar · Dermos</div>
+                        <div class="border-t border-slate-700 pt-1"></div>
                         <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#eab308] shadow-[0_0_8px_#eab308] mr-3"></div> Alto Perfumaria</div>
                         <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#22c55e] shadow-[0_0_8px_#22c55e] mr-3"></div> Baixo Perf/Alto Med</div>
                         <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#3b82f6] shadow-[0_0_8px_#3b82f6] mr-3"></div> Baixo Medicamento</div>
                         <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#ec4899] shadow-[0_0_8px_#ec4899] mr-3"></div> Ruas 40 e 42</div>
-                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#8b5cf6] shadow-[0_0_8px_#8b5cf6] mr-3"></div> Mezanino</div>
                         <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#94a3b8] shadow-[0_0_8px_#94a3b8] mr-3"></div> Geral (Ruas 10-20)</div>
                     </div>
                 </div>
@@ -642,54 +646,543 @@
         
         function parseLocDigitalTwin(item) {
             try {
-                let e = String(item.loc).toUpperCase().trim(); let prefixo = e.startsWith('VR') ? 'VR' : (e.startsWith('VX') ? 'VX' : (e.startsWith('V') ? 'V' : ''));
-                let limpo = e.replace(prefixo, ''); let p = limpo.split('-'); if(p.length < 3) return null; let rua = parseInt(p[0]); let modulo = parseInt(p[1]); let posicao = parseInt(p[2]); if(isNaN(rua) || isNaN(modulo)) return null;
-                const coordGrafica = mapToGrid(rua, modulo, prefixo); const cor = getZonaCor(rua, modulo, prefixo); 
-                
-                // NOVA LÓGICA DE LINHA DO TEMPO CONTÍNUA
-                const secOriginal = timeToSeconds(item.hora);
-                const secContinuous = secOriginal < 43200 ? secOriginal + 86400 : secOriginal; // Se for antes do meio dia, soma 24h para ordenação perfeita
-                
+                let e = String(item.loc).toUpperCase().trim();
+                // PREFIXOS — ordem importa: testar os mais longos/específicos primeiro
+                // VR = Alimentos | VY = Mezanino 1° Volumoso | VX = Mezanino 2° Controlado | VW = Mezanino 3° Dermos | V = geral
+                let prefixo = '';
+                if      (e.startsWith('VR')) prefixo = 'VR';
+                else if (e.startsWith('VY')) prefixo = 'VY';
+                else if (e.startsWith('VX')) prefixo = 'VX';
+                else if (e.startsWith('VW')) prefixo = 'VW';
+                else if (e.startsWith('V'))  prefixo = 'V';
+                else return null;
+
+                let limpo = e.replace(prefixo, '');
+                let p = limpo.split('-');
+                if (p.length < 3) return null;
+                let rua     = parseInt(p[0]);
+                let modulo  = parseInt(p[1]);
+                let posicao = parseInt(p[2]);
+                if (isNaN(rua) || isNaN(modulo)) return null;
+
+                const coordGrafica = mapToGrid(rua, modulo, prefixo, posicao);
+                const cor          = getZonaCor(rua, modulo, prefixo);
+
+                const secOriginal  = timeToSeconds(item.hora);
+                const secContinuous = secOriginal < 43200 ? secOriginal + 86400 : secOriginal;
+
                 return { romaneio: item.romaneio, hora: item.hora, sec: secContinuous, rua, modulo, posicao, prefixo, gx: coordGrafica.x, gy: coordGrafica.y, cor: cor, raw: e };
             } catch (err) { return null; }
         }
 
         function calcDistanciaReal(origem, destino) {
-            if (!origem || !destino) return 0; const cfg = { rua: 3.5, modulo: 1.2, posicao: 5.6 }; let dist = 0;
-            const oMezanino = origem.prefixo === 'VX' || origem.rua >= 80; const dMezanino = destino.prefixo === 'VX' || destino.rua >= 80; if(oMezanino !== dMezanino) dist += 15; 
-            if (origem.rua === destino.rua && origem.prefixo === destino.prefixo) dist += (Math.abs(destino.modulo - origem.modulo) * cfg.modulo) + Math.abs(destino.posicao - origem.posicao) * cfg.posicao; else dist += (origem.modulo * cfg.modulo) + (Math.abs(destino.rua - origem.rua) * cfg.rua) + (destino.modulo * cfg.modulo); return isNaN(dist) ? 0 : dist;
+            if (!origem || !destino) return 0;
+            const cfg = { rua: 3.5, modulo: 1.2, posicao: 5.6 };
+            let dist = 0;
+            const MEZ = ['VY','VX','VW'];
+            const oMez = MEZ.includes(origem.prefixo);
+            const dMez = MEZ.includes(destino.prefixo);
+            // Subir/descer do mezanino custa ~15m (escada/rampa)
+            if (oMez !== dMez) dist += 15;
+            // Trocar de andar dentro do mezanino custa ~8m (escada entre andares)
+            if (oMez && dMez && origem.prefixo !== destino.prefixo) dist += 8;
+            if (origem.rua === destino.rua && origem.prefixo === destino.prefixo) {
+                dist += (Math.abs(destino.modulo - origem.modulo) * cfg.modulo) + Math.abs(destino.posicao - origem.posicao) * cfg.posicao;
+            } else {
+                dist += (origem.modulo * cfg.modulo) + (Math.abs(destino.rua - origem.rua) * cfg.rua) + (destino.modulo * cfg.modulo);
+            }
+            return isNaN(dist) ? 0 : dist;
         }
         
-        const COLORS = { alimento: '#f59e0b', mezanino: '#8b5cf6', amarelo: '#eab308', verde: '#22c55e', azul: '#3b82f6', rosa: '#ec4899', geral: '#64748b', fundoBloco: 'rgba(30, 41, 59, 0.4)' };
+        const COLORS = { alimento: '#f59e0b', mezVolumos: '#fbbf24', mezControl: '#a78bfa', mezDermos: '#f472b6', amarelo: '#eab308', verde: '#22c55e', azul: '#3b82f6', rosa: '#ec4899', geral: '#64748b', fundoBloco: 'rgba(30, 41, 59, 0.4)' };
         function getZonaCor(rua, modulo, prefixo) {
-            if (prefixo === 'VR') return COLORS.alimento; if (prefixo === 'VX' || rua >= 80) return COLORS.mezanino;
-            if (rua >= 21 && rua <= 36) { if (modulo <= 26) return COLORS.amarelo; if (modulo >= 33 && modulo <= 46) return COLORS.verde; if (modulo >= 53 && modulo <= 60) return COLORS.azul; }
-            if (rua === 40 || rua === 42) return COLORS.rosa; if (rua >= 10 && rua <= 20) return COLORS.geral; return COLORS.fundoBloco;
+            if (prefixo === 'VR') return COLORS.alimento;
+            if (prefixo === 'VY') return COLORS.mezVolumos;   // 1° Volumoso
+            if (prefixo === 'VX') return COLORS.mezControl;   // 2° Controlado
+            if (prefixo === 'VW') return COLORS.mezDermos;    // 3° Dermos
+            if (rua >= 21 && rua <= 36) {
+                if (modulo <= 26)                return COLORS.amarelo;
+                if (modulo >= 33 && modulo <= 46) return COLORS.verde;
+                if (modulo >= 53 && modulo <= 60) return COLORS.azul;
+            }
+            if (rua === 40 || rua === 42) return COLORS.rosa;
+            if (rua >= 10 && rua <= 20)   return COLORS.geral;
+            return COLORS.fundoBloco;
         }
-        function mapToGrid(rua, modulo, prefixo) { let gx = rua; let gy = modulo; if (prefixo === 'VR') { gx = rua; gy = modulo - 40; } else if (prefixo === 'VX' || rua >= 80) { gx = (rua - 80) + 21; gy = -30; } return { x: gx, y: gy }; }
+        // =====================================================================
+        // SISTEMA DE COORDENADAS — baseado na planta AutoCAD do CD Duque de Caxias
+        // Escala: 1 unidade de grid = ~3.5m reais
+        // Layout (eixo X = ruas, eixo Y = módulos, Y cresce para baixo):
+        //
+        //  [MEZANINO 2°/3° piso — topo esquerdo]
+        //  [ALIMENTOS VR10-13  — faixa superior]
+        //  [GERAL  Ruas 10-20  — bloco esquerdo]
+        //  [ALTO PERF Rua21-36 módulo 1-26      ]
+        //  ---- CORREDOR RUA 40 ----
+        //  [BAIXO PERF/ALTO MED Rua21-36 mod33-46]
+        //  ---- CORREDOR RUA 42 ----
+        //  [BAIXO MED Rua21-36 módulo 53-60      ]
+        //  [CÂMARA FRIA — canto direito inferior ]
+        // =====================================================================
 
-        const canvas = document.getElementById('canvasEngine'); const ctx = canvas.getContext('2d'); const container = document.getElementById('map-container');
-        let transform = { x: 0, y: 0, scale: 15 }; let isDragging = false; let startPan = { x: 0, y: 0 };
-        function resizeCanvas() { const rect = container.getBoundingClientRect(); canvas.width = rect.width; canvas.height = rect.height; if(transform.x === 0 && transform.y === 0) { transform.x = canvas.width / 2 - (25 * transform.scale); transform.y = canvas.height / 2 - (30 * transform.scale); } renderEngine(); }
+        // Constantes de layout (unidades de grid)
+        const W = {
+            MARGEM_ESQ   : 2,    // margem esquerda da planta
+            GERAL_X0     : 3,    // início X das ruas 10-20
+            GERAL_X1     : 13,   // fim X das ruas 10-20
+            PERF_X0      : 14,   // início X das ruas 21-36
+            PERF_X1      : 30,   // fim X das ruas 21-36
+            RUA40_X      : 31,   // posição X da rua 40
+            RUA42_X      : 33,   // posição X da rua 42
+            CAM_X0       : 35,   // câmara fria X início
+            CAM_X1       : 42,   // câmara fria X fim
+
+            // Y positions (módulos)
+            TOPO         : 0,    // topo da planta
+            MEZANINO_Y0  : 0,    // mezanino Y início
+            MEZANINO_Y1  : 5,    // mezanino Y fim
+            ALIM_Y0      : 0,    // alimentos Y início
+            ALIM_Y1      : 12,   // alimentos Y fim
+            GERAL_Y0     : 0,    // geral Y início
+            GERAL_Y1     : 55,   // geral Y fim
+
+            ALTO_PERF_Y0 : 2,
+            ALTO_PERF_Y1 : 24,
+            CORR40_Y     : 27,   // corredor rua 40
+            BAIXO_PERF_Y0: 30,
+            BAIXO_PERF_Y1: 44,
+            CORR42_Y     : 47,   // corredor rua 42
+            BAIXO_MED_Y0 : 50,
+            BAIXO_MED_Y1 : 60,
+            CAM_Y0       : 42,
+            CAM_Y1       : 60,
+
+            // rua 40/42 módulos (horizontal, eixo X)
+            R40_MOD_X0   : 14,
+            R40_MOD_X1   : 30,
+        };
+
+        function mapToGrid(rua, modulo, prefixo, posicao) {
+            // ALIMENTOS (VR)
+            if (prefixo === 'VR') {
+                const ruaIdx = rua - 10;
+                const gx = W.GERAL_X0 + ruaIdx * 2.5;
+                const gy = W.ALIM_Y0 + (modulo - 10) * 0.35;
+                return { x: gx, y: gy };
+            }
+            // ── MEZANINO — 3 andares por PREFIXO ──────────────────────────
+            // VY = 1° Andar VOLUMOSO    centro Y ≈ -16
+            // VX = 2° Andar CONTROLADO  centro Y ≈ -10.3
+            // VW = 3° Andar DERMOS      centro Y ≈ -4.6
+            if (prefixo === 'VY' || prefixo === 'VX' || prefixo === 'VW') {
+                const ruaIdx   = rua - 1;                    // rua 1 → idx 0
+                const blocoB   = ruaIdx >= 12;               // bloco B a partir da rua 13
+                const ruaLocal = blocoB ? ruaIdx - 12 : ruaIdx;
+                const gx       = (blocoB ? 21.5 : 0.5) + ruaLocal * 1.7 + 0.85;
+                const centroY  = prefixo === 'VY' ? -16 : (prefixo === 'VX' ? -10.3 : -4.6);
+                const gy       = centroY + (modulo / 20) * 3.5;
+                return { x: Math.max(0.5, Math.min(gx, 43.5)), y: gy };
+            }
+            // GERAL Ruas 10-20
+            if (rua >= 10 && rua <= 20) {
+                const ruaIdx = rua - 10;
+                const gx = W.GERAL_X0 + ruaIdx * 1.0;
+                const gy = W.GERAL_Y0 + modulo * 0.9;
+                return { x: gx, y: gy };
+            }
+            // BLOCO PRINCIPAL Ruas 21-36
+            if (rua >= 21 && rua <= 36) {
+                const ruaIdx = rua - 21;
+                const gx = W.PERF_X0 + ruaIdx * 1.0;
+                if (modulo <= 26) {
+                    // ALTO PERFUMARIA
+                    const gy = W.ALTO_PERF_Y0 + (modulo - 1) * ((W.ALTO_PERF_Y1 - W.ALTO_PERF_Y0) / 26);
+                    return { x: gx, y: gy };
+                } else if (modulo >= 33 && modulo <= 46) {
+                    // BAIXO PERF / ALTO MED
+                    const gy = W.BAIXO_PERF_Y0 + (modulo - 33) * ((W.BAIXO_PERF_Y1 - W.BAIXO_PERF_Y0) / 14);
+                    return { x: gx, y: gy };
+                } else if (modulo >= 53 && modulo <= 60) {
+                    // BAIXO MED
+                    const gy = W.BAIXO_MED_Y0 + (modulo - 53) * ((W.BAIXO_MED_Y1 - W.BAIXO_MED_Y0) / 8);
+                    return { x: gx, y: gy };
+                }
+                return { x: gx, y: W.ALTO_PERF_Y0 + modulo * 0.5 };
+            }
+            // CORREDORES RUA 40 e 42
+            if (rua === 40 || rua === 42) {
+                const baseY = rua === 40 ? W.CORR40_Y : W.CORR42_Y;
+                const gx = W.R40_MOD_X0 + (modulo - 57) * ((W.R40_MOD_X1 - W.R40_MOD_X0) / 34);
+                return { x: Math.max(W.R40_MOD_X0, Math.min(gx, W.R40_MOD_X1)), y: baseY };
+            }
+            return { x: W.PERF_X0, y: W.ALTO_PERF_Y0 };
+        }
+
+        const canvas = document.getElementById('canvasEngine');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('map-container');
+        let transform = { x: 0, y: 0, scale: 15 };
+        let isDragging = false; let startPan = { x: 0, y: 0 };
+
+        function resizeCanvas() {
+            const rect = container.getBoundingClientRect();
+            canvas.width = rect.width; canvas.height = rect.height;
+            resetZoom();
+        }
         window.addEventListener('resize', resizeCanvas);
-        function resetZoom() { transform.scale = Math.min(canvas.width / 50, canvas.height / 110); transform.x = canvas.width / 2 - (25 * transform.scale); transform.y = canvas.height / 2 - (30 * transform.scale) + 150; requestAnimationFrame(renderEngine); }
-        container.addEventListener('mousedown', e => { isDragging = true; startPan = { x: e.clientX - transform.x, y: e.clientY - transform.y }; }); container.addEventListener('mousemove', e => { if (!isDragging) return; transform.x = e.clientX - startPan.x; transform.y = e.clientY - startPan.y; requestAnimationFrame(renderEngine); }); container.addEventListener('mouseup', () => isDragging = false); container.addEventListener('mouseleave', () => isDragging = false);
-        container.addEventListener('wheel', e => { e.preventDefault(); const mouseX = e.clientX - container.getBoundingClientRect().left; const mouseY = e.clientY - container.getBoundingClientRect().top; let newScale = Math.max(3, Math.min(transform.scale * (1 + (-e.deltaY * 0.002)), 50)); transform.x = mouseX - (mouseX - transform.x) * (newScale / transform.scale); transform.y = mouseY - (mouseY - transform.y) * (newScale / transform.scale); transform.scale = newScale; requestAnimationFrame(renderEngine); });
 
-        function desenharBlocoGeral(inicioX, fimX, inicioY, fimY, corFundo, corBorda, label) {
-            ctx.fillStyle = corFundo; const largura = (fimX - inicioX + 1); const altura = (fimY - inicioY + 1); ctx.fillRect(inicioX - 0.4, inicioY - 0.4, largura + 0.8, altura + 0.8); ctx.fillStyle = corBorda; for(let rx = inicioX; rx <= fimX; rx++) for(let my = inicioY; my <= fimY; my++) ctx.fillRect(rx - 0.2, my - 0.4, 0.4, 0.8); if (transform.scale > 5) { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '1px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, inicioX + largura/2, inicioY + altura/2); }
+        function resetZoom() {
+            // Planta ocupa ~44 unidades X e ~62 unidades Y
+            const scaleX = canvas.width  / 50;
+            const scaleY = canvas.height / 70;
+            transform.scale = Math.min(scaleX, scaleY) * 0.92;
+            transform.x = canvas.width  * 0.04;
+            transform.y = canvas.height * 0.03;
+            requestAnimationFrame(renderEngine);
+        }
+
+        container.addEventListener('mousedown', e => { isDragging = true; startPan = { x: e.clientX - transform.x, y: e.clientY - transform.y }; });
+        container.addEventListener('mousemove', e => { if (!isDragging) return; transform.x = e.clientX - startPan.x; transform.y = e.clientY - startPan.y; requestAnimationFrame(renderEngine); });
+        container.addEventListener('mouseup',   () => isDragging = false);
+        container.addEventListener('mouseleave',() => isDragging = false);
+        container.addEventListener('touchstart', e => { if(e.touches.length===1){ isDragging=true; startPan={x:e.touches[0].clientX-transform.x,y:e.touches[0].clientY-transform.y};} }, {passive:true});
+        container.addEventListener('touchmove',  e => { if(!isDragging||e.touches.length!==1) return; transform.x=e.touches[0].clientX-startPan.x; transform.y=e.touches[0].clientY-startPan.y; requestAnimationFrame(renderEngine); }, {passive:true});
+        container.addEventListener('touchend',  () => isDragging = false);
+        container.addEventListener('wheel', e => {
+            e.preventDefault();
+            const rect = container.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            let newScale = Math.max(4, Math.min(transform.scale * (1 + (-e.deltaY * 0.002)), 80));
+            transform.x = mouseX - (mouseX - transform.x) * (newScale / transform.scale);
+            transform.y = mouseY - (mouseY - transform.y) * (newScale / transform.scale);
+            transform.scale = newScale;
+            requestAnimationFrame(renderEngine);
+        });
+
+        // =====================================================================
+        // FUNÇÕES DE DESENHO — Planta fiel ao AutoCAD
+        // =====================================================================
+
+        function px(gx) { return gx; }  // grid já está em unidades canvas
+
+        function label(txt, gx, gy, tamanho, cor, bg) {
+            ctx.save();
+            ctx.scale(1/transform.scale, 1/transform.scale);
+            const fs = tamanho || 9;
+            ctx.font = `bold ${fs}px Inter`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            if (bg) {
+                const tw = ctx.measureText(txt).width;
+                ctx.fillStyle = bg;
+                ctx.fillRect(-tw/2 - 4, -fs*0.7, tw + 8, fs * 1.4);
+            }
+            ctx.fillStyle = cor || 'rgba(255,255,255,0.85)';
+            ctx.fillText(txt, 0, 0);
+            ctx.restore();
+        }
+
+        function desenharParede(x1, y1, x2, y2, espessura, cor) {
+            ctx.strokeStyle = cor || '#334155';
+            ctx.lineWidth = (espessura || 0.3) / transform.scale * 10;
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        }
+
+        function preencherZona(x, y, w, h, corFundo, corBorda, raio) {
+            const r = raio || 0.3;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+            ctx.arcTo(x+w, y, x+w, y+r, r); ctx.lineTo(x+w, y+h-r);
+            ctx.arcTo(x+w, y+h, x+w-r, y+h, r); ctx.lineTo(x+r, y+h);
+            ctx.arcTo(x, y+h, x, y+h-r, r); ctx.lineTo(x, y+r);
+            ctx.arcTo(x, y, x+r, y, r); ctx.closePath();
+            ctx.fillStyle = corFundo; ctx.fill();
+            if (corBorda) { ctx.strokeStyle = corBorda; ctx.lineWidth = 0.08; ctx.stroke(); }
+        }
+
+        function desenharPrateleiras(x0, y0, largRua, altTotal, nRuas, nModulos, corBarra, corFundo, prefixoLabel, ruaInicio, modInicio) {
+            const passo = largRua;
+            const modAltura = altTotal / nModulos;
+            // Fundo do bloco
+            preencherZona(x0, y0, nRuas * passo, altTotal, corFundo, corBorda = null, 0.2);
+            // Barras verticais (prateleiras)
+            ctx.fillStyle = corBarra;
+            for (let r = 0; r <= nRuas; r++) {
+                ctx.fillRect(x0 + r * passo - 0.07, y0, 0.14, altTotal);
+            }
+            // Traços horizontais (módulos)
+            ctx.strokeStyle = corBarra;
+            ctx.lineWidth = 0.04;
+            for (let m = 0; m <= nModulos; m++) {
+                ctx.beginPath();
+                ctx.moveTo(x0, y0 + m * modAltura);
+                ctx.lineTo(x0 + nRuas * passo, y0 + m * modAltura);
+                ctx.stroke();
+            }
+            // Labels de rua ao zoom médio
+            if (transform.scale > 10) {
+                for (let r = 0; r < nRuas; r++) {
+                    const cx = x0 + r * passo + passo / 2;
+                    const cy = y0 - 0.8;
+                    ctx.save();
+                    ctx.translate(cx, cy);
+                    label(`R${ruaInicio + r}`, 0, 0, 7, '#94a3b8', null);
+                    ctx.restore();
+                }
+            }
+            // Labels de módulo ao zoom alto
+            if (transform.scale > 22 && nModulos > 0) {
+                for (let m = 0; m < nModulos; m++) {
+                    const cy = y0 + (m + 0.5) * modAltura;
+                    for (let r = 0; r < nRuas; r++) {
+                        const cx = x0 + r * passo + passo / 2;
+                        ctx.save();
+                        ctx.translate(cx, cy);
+                        label(`${prefixoLabel ? prefixoLabel + '-' : ''}${String(ruaInicio + r).padStart(2,'0')}-${String(modInicio + m).padStart(2,'0')}`, 0, 0, 6, 'rgba(255,255,255,0.6)', null);
+                        ctx.restore();
+                    }
+                }
+            }
+        }
+
+        function desenharCorredorHorizontal(x0, y0, largura, altura, cor, titulo) {
+            preencherZona(x0, y0, largura, altura, cor, '#0f172a', 0.15);
+            if (transform.scale > 6) {
+                ctx.save(); ctx.translate(x0 + largura / 2, y0 + altura / 2);
+                label(titulo, 0, 0, 8, '#cbd5e1', 'rgba(0,0,0,0.4)');
+                ctx.restore();
+            }
         }
 
         function desenharArmazemBlueprint() {
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.5)'; ctx.fillRect(5, -45, 42, 110);
-            desenharBlocoGeral(10, 13, -28, -9, 'rgba(245, 158, 11, 0.1)', COLORS.alimento, 'ALIMENTOS');
-            desenharBlocoGeral(21, 32, -35, -15, 'rgba(139, 92, 246, 0.1)', COLORS.mezanino, 'MEZANINO');
-            desenharBlocoGeral(10, 20, 1, 60, 'rgba(100, 116, 139, 0.1)', COLORS.geral, 'GERAL');
-            desenharBlocoGeral(21, 36, 1, 26, 'rgba(234, 179, 8, 0.1)', COLORS.amarelo, 'ALTO PERF.');
-            desenharBlocoGeral(21, 36, 33, 46, 'rgba(34, 197, 94, 0.1)', COLORS.verde, 'BAIXO PERF.');
-            desenharBlocoGeral(21, 36, 53, 60, 'rgba(59, 130, 246, 0.1)', COLORS.azul, 'BAIXO MED.');
-            desenharBlocoGeral(40, 40, 57, 90, 'rgba(236, 72, 153, 0.1)', COLORS.rosa, '40');
-            desenharBlocoGeral(42, 42, 57, 90, 'rgba(236, 72, 153, 0.1)', COLORS.rosa, '42');
+            const s = transform.scale;
+            const W2 = W; // alias
+
+            // ── FUNDO GERAL DA PLANTA ─────────────────────────────────────
+            preencherZona(-0.5, -1, 46, 66, 'rgba(15,23,42,0.6)', '#1e293b', 0.5);
+
+            // ── CONTORNO EXTERNO (paredes) ────────────────────────────────
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 0.25;
+            ctx.strokeRect(0, 0, 44, 63);
+
+            // ══════════════════════════════════════════════════════════════
+            // SEÇÃO 1 — MEZANINO (3 andares: Volumoso / Controlado / Dermos)
+            // Cada andar fica em uma faixa vertical separada acima da planta
+            // Andar 1 (Volumoso)  → faixa Y: -18 a -13
+            // Andar 2 (Controlado)→ faixa Y: -12 a  -7
+            // Andar 3 (Dermos)    → faixa Y:  -6 a  -1
+            // ══════════════════════════════════════════════════════════════
+
+            // — BORDA EXTERNA DO MEZANINO —
+            preencherZona(-0.3, -19, 44.6, 19.5, 'rgba(30,15,60,0.5)', '#4c1d95', 0.5);
+            ctx.save(); ctx.translate(22, -19.8);
+            label('▲  MEZANINO  (3 ANDARES)', 0, 0, 11, '#c084fc', 'rgba(15,23,42,0.8)');
+            ctx.restore();
+
+            // ── 1° ANDAR — VOLUMOSO ─────────────────────────────────────
+            preencherZona(0.2, -18.5, 43.6, 5, 'rgba(251,191,36,0.07)', '#b45309', 0.3);
+            // bloco A (ruas 80–91)
+            desenharPrateleiras(0.5, -18, 1.7, 4.2, 12, 20, '#d97706', 'rgba(251,191,36,0.12)', 'V', 80, 1);
+            // bloco B (ruas 92–103)
+            desenharPrateleiras(21.5, -18, 1.7, 4.2, 12, 20, '#d97706', 'rgba(251,191,36,0.12)', 'V', 92, 1);
+            ctx.save(); ctx.translate(22, -16.4);
+            label('1° ANDAR — VOLUMOSO  (Ruas 80–91)', 0, 0, 10, '#fbbf24', 'rgba(15,23,42,0.75)');
+            ctx.restore();
+
+            // ── 2° ANDAR — CONTROLADO ────────────────────────────────────
+            preencherZona(0.2, -12.8, 43.6, 5, 'rgba(139,92,246,0.10)', '#5b21b6', 0.3);
+            desenharPrateleiras(0.5, -12.3, 1.7, 4.2, 12, 20, '#7c3aed', 'rgba(109,40,217,0.18)', 'V', 80, 1);
+            desenharPrateleiras(21.5, -12.3, 1.7, 4.2, 12, 20, '#7c3aed', 'rgba(109,40,217,0.18)', 'V', 92, 1);
+            ctx.save(); ctx.translate(22, -10.7);
+            label('2° ANDAR — CONTROLADO  (Ruas 80–91)', 0, 0, 10, '#a78bfa', 'rgba(15,23,42,0.75)');
+            ctx.restore();
+
+            // ── 3° ANDAR — DERMOS ────────────────────────────────────────
+            preencherZona(0.2, -7.1, 43.6, 5, 'rgba(244,114,182,0.08)', '#9d174d', 0.3);
+            desenharPrateleiras(0.5, -6.6, 1.7, 4.2, 12, 20, '#db2777', 'rgba(244,114,182,0.15)', 'V', 80, 1);
+            desenharPrateleiras(21.5, -6.6, 1.7, 4.2, 12, 20, '#db2777', 'rgba(244,114,182,0.15)', 'V', 92, 1);
+            ctx.save(); ctx.translate(22, -5.0);
+            label('3° ANDAR — DERMOS  (Ruas 80–91)', 0, 0, 10, '#f472b6', 'rgba(15,23,42,0.75)');
+            ctx.restore();
+
+            // — separadores visuais entre andares —
+            ctx.strokeStyle = '#4c1d95'; ctx.lineWidth = 0.12; ctx.setLineDash([0.4, 0.3]);
+            [-13.1, -7.4].forEach(y => {
+                ctx.beginPath(); ctx.moveTo(0.2, y); ctx.lineTo(43.8, y); ctx.stroke();
+            });
+            ctx.setLineDash([]);
+
+            // — labels laterais de andar (visíveis mesmo em zoom afastado) —
+            if (s > 5) {
+                [
+                    { y: -16, txt: '1°', cor: '#fbbf24' },
+                    { y: -10.3, txt: '2°', cor: '#a78bfa' },
+                    { y: -4.6,  txt: '3°', cor: '#f472b6' },
+                ].forEach(l => {
+                    ctx.save(); ctx.translate(-0.5, l.y);
+                    ctx.scale(1/s, 1/s);
+                    ctx.font = 'bold 10px Inter'; ctx.fillStyle = l.cor;
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(l.txt, 0, 0);
+                    ctx.restore();
+                });
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // SEÇÃO 2 — ALIMENTOS (VR10–VR13, faixa superior esquerda)
+            // ══════════════════════════════════════════════════════════════
+            preencherZona(0.3, 0.3, 10, 12, 'rgba(245,158,11,0.07)', '#b45309', 0.3);
+            desenharPrateleiras(0.6, 1, 2.2, 10.5, 4, 22, '#d97706', 'rgba(245,158,11,0.12)', 'VR', 10, 10);
+            ctx.save(); ctx.translate(5.5, 6);
+            label('ALIMENTOS', 0, 0, 11, '#fbbf24', 'rgba(15,23,42,0.7)');
+            ctx.restore();
+
+            // ══════════════════════════════════════════════════════════════
+            // SEÇÃO 3 — GERAL Ruas 10-20 (bloco esquerdo vertical)
+            // ══════════════════════════════════════════════════════════════
+            preencherZona(0.3, 13, 10, 47, 'rgba(100,116,139,0.07)', '#475569', 0.3);
+            desenharPrateleiras(0.6, 13.5, 0.92, 45.5, 11, 60, '#64748b', 'rgba(100,116,139,0.1)', 'V', 10, 1);
+            ctx.save(); ctx.translate(5.5, 36);
+            label('GERAL  RUA 10–20', 0, 0, 11, '#94a3b8', 'rgba(15,23,42,0.7)');
+            ctx.restore();
+
+            // ══════════════════════════════════════════════════════════════
+            // SEÇÃO 4 — ALTO PERFUMARIA Ruas 21-36, módulos 1-26
+            // ══════════════════════════════════════════════════════════════
+            preencherZona(11.5, 0.3, 17, 23, 'rgba(234,179,8,0.07)', '#a16207', 0.3);
+            desenharPrateleiras(11.8, 0.8, 1.02, 22, 16, 26, '#ca8a04', 'rgba(234,179,8,0.10)', 'V', 21, 1);
+            ctx.save(); ctx.translate(20, 12);
+            label('ALTO PERFUMARIA', 0, 0, 11, '#fde047', 'rgba(15,23,42,0.7)');
+            ctx.restore();
+
+            // ══════════════════════════════════════════════════════════════
+            // CORREDOR RUA 40 (horizontal, entre alto perf e baixo perf)
+            // ══════════════════════════════════════════════════════════════
+            desenharCorredorHorizontal(11.5, 23.8, 17, 2.2, 'rgba(236,72,153,0.08)', '━  RUA 40  ━');
+            // marcadores de endereço da rua 40 (módulos 57-90)
+            if (s > 6) {
+                ctx.strokeStyle = '#ec4899'; ctx.lineWidth = 0.06; ctx.setLineDash([0.3, 0.3]);
+                for (let m = 0; m <= 33; m++) {
+                    const xm = 11.8 + m * (17/34);
+                    ctx.beginPath(); ctx.moveTo(xm, 23.8); ctx.lineTo(xm, 26); ctx.stroke();
+                }
+                ctx.setLineDash([]);
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // SEÇÃO 5 — BAIXO PERFUMARIA / ALTO MEDICAMENTO Ruas 21-36, mód 33-46
+            // ══════════════════════════════════════════════════════════════
+            preencherZona(11.5, 26.3, 17, 14, 'rgba(34,197,94,0.07)', '#15803d', 0.3);
+            desenharPrateleiras(11.8, 26.8, 1.02, 13, 16, 14, '#16a34a', 'rgba(34,197,94,0.10)', 'V', 21, 33);
+            ctx.save(); ctx.translate(20, 33);
+            label('BAIXO PERF. / ALTO MED.', 0, 0, 11, '#4ade80', 'rgba(15,23,42,0.7)');
+            ctx.restore();
+
+            // ══════════════════════════════════════════════════════════════
+            // CORREDOR RUA 42 (horizontal)
+            // ══════════════════════════════════════════════════════════════
+            desenharCorredorHorizontal(11.5, 40.6, 17, 2.2, 'rgba(236,72,153,0.08)', '━  RUA 42  ━');
+            if (s > 6) {
+                ctx.strokeStyle = '#ec4899'; ctx.lineWidth = 0.06; ctx.setLineDash([0.3, 0.3]);
+                for (let m = 0; m <= 33; m++) {
+                    const xm = 11.8 + m * (17/34);
+                    ctx.beginPath(); ctx.moveTo(xm, 40.6); ctx.lineTo(xm, 42.8); ctx.stroke();
+                }
+                ctx.setLineDash([]);
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // SEÇÃO 6 — BAIXO MEDICAMENTO Ruas 21-36, módulos 53-60
+            // ══════════════════════════════════════════════════════════════
+            preencherZona(11.5, 43.1, 17, 9.5, 'rgba(59,130,246,0.07)', '#1d4ed8', 0.3);
+            desenharPrateleiras(11.8, 43.6, 1.02, 8.5, 16, 8, '#2563eb', 'rgba(59,130,246,0.10)', 'V', 21, 53);
+            ctx.save(); ctx.translate(20, 48);
+            label('BAIXO MEDICAMENTO', 0, 0, 11, '#60a5fa', 'rgba(15,23,42,0.7)');
+            ctx.restore();
+
+            // ══════════════════════════════════════════════════════════════
+            // CÂMARA FRIA (canto direito inferior, ~128m²)
+            // ══════════════════════════════════════════════════════════════
+            preencherZona(29.5, 43, 11, 12, 'rgba(186,230,253,0.05)', '#0369a1', 0.4);
+            // grade interna da câmara
+            ctx.strokeStyle = '#0ea5e9'; ctx.lineWidth = 0.06;
+            for (let i = 1; i < 5; i++) { ctx.beginPath(); ctx.moveTo(29.5 + i*2.2, 43); ctx.lineTo(29.5 + i*2.2, 55); ctx.stroke(); }
+            for (let j = 1; j < 5; j++) { ctx.beginPath(); ctx.moveTo(29.5, 43 + j*3); ctx.lineTo(40.5, 43 + j*3); ctx.stroke(); }
+            ctx.save(); ctx.translate(35, 49);
+            label('❄  CÂMARA FRIA', 0, 0, 12, '#7dd3fc', 'rgba(2,44,80,0.85)');
+            ctx.restore();
+            ctx.save(); ctx.translate(35, 51);
+            label('128 m²', 0, 0, 9, '#38bdf8', null);
+            ctx.restore();
+            // borda reforçada da câmara
+            ctx.strokeStyle = '#0284c7'; ctx.lineWidth = 0.18;
+            ctx.strokeRect(29.5, 43, 11, 12);
+
+            // ══════════════════════════════════════════════════════════════
+            // ÁREA DE EXPEDIÇÃO / DOCA (topo direito)
+            // ══════════════════════════════════════════════════════════════
+            preencherZona(29.5, 0, 14.5, 12, 'rgba(168,85,247,0.05)', '#7c3aed', 0.3);
+            // docas de carga
+            ctx.fillStyle = 'rgba(139,92,246,0.15)';
+            for (let d = 0; d < 6; d++) {
+                ctx.fillRect(30.5 + d * 2.2, 0.3, 1.8, 4);
+                ctx.strokeStyle = '#6d28d9'; ctx.lineWidth = 0.08;
+                ctx.strokeRect(30.5 + d * 2.2, 0.3, 1.8, 4);
+            }
+            ctx.save(); ctx.translate(37, 7);
+            label('EXPEDIÇÃO / DOCAS', 0, 0, 11, '#c084fc', 'rgba(15,23,42,0.7)');
+            ctx.restore();
+
+            // ══════════════════════════════════════════════════════════════
+            // CORREDORES PRINCIPAIS (linhas de circulação)
+            // ══════════════════════════════════════════════════════════════
+            // Corredor longitudinal entre geral (rua 20) e perf (rua 21)
+            ctx.strokeStyle = 'rgba(51,65,85,0.6)'; ctx.lineWidth = 0.12; ctx.setLineDash([0.5,0.5]);
+            ctx.beginPath(); ctx.moveTo(11.3, 0); ctx.lineTo(11.3, 63); ctx.stroke();
+            // Corredor longitudinal no fim das ruas 36 / início câmara
+            ctx.beginPath(); ctx.moveTo(29.2, 0); ctx.lineTo(29.2, 63); ctx.stroke();
+            ctx.setLineDash([]);
+
+            // ══════════════════════════════════════════════════════════════
+            // LEGENDA DE ZONAS (canto superior esquerdo, só zoom afastado)
+            // ══════════════════════════════════════════════════════════════
+            if (s < 12) {
+                const legendas = [
+                    { cor: '#f59e0b', txt: 'Alimentos' },
+                    { cor: '#fbbf24', txt: 'Mez. 1° Volumoso' },
+                    { cor: '#a78bfa', txt: 'Mez. 2° Controlado' },
+                    { cor: '#f472b6', txt: 'Mez. 3° Dermos' },
+                    { cor: '#64748b', txt: 'Geral R10-20' },
+                    { cor: '#eab308', txt: 'Alto Perf.' },
+                    { cor: '#22c55e', txt: 'Baixo Perf./Alto Med.' },
+                    { cor: '#3b82f6', txt: 'Baixo Med.' },
+                    { cor: '#ec4899', txt: 'Ruas 40/42' },
+                    { cor: '#0ea5e9', txt: 'Câmara Fria' },
+                ];
+                ctx.save();
+                ctx.scale(1/s, 1/s);
+                const lx = 5; let ly = 50;
+                legendas.forEach(l => {
+                    ctx.fillStyle = l.cor;
+                    ctx.fillRect(lx, ly, 12, 9);
+                    ctx.font = 'bold 9px Inter'; ctx.fillStyle = '#cbd5e1'; ctx.textBaseline = 'middle';
+                    ctx.fillText(l.txt, lx + 15, ly + 4.5);
+                    ly += 13;
+                });
+                ctx.restore();
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // TÍTULO DO CD (zoom afastado)
+            // ══════════════════════════════════════════════════════════════
+            if (s < 14) {
+                ctx.save(); ctx.translate(22, -0.5);
+                ctx.scale(1/s, 1/s);
+                ctx.font = 'bold 11px Inter'; ctx.fillStyle = 'rgba(148,163,184,0.7)';
+                ctx.textAlign = 'center'; ctx.fillText('CD DUQUE DE CAXIAS', 0, 0);
+                ctx.restore();
+            }
         }
 
         function desenharRotas() {
