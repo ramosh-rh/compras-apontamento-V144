@@ -375,6 +375,13 @@
         let frota = [];
         const HOJE = new Date("2026-05-04T00:00:00");
 
+        // FUNÇÃO DE TEMPO GLOBAL
+        function timeToSeconds(timeStr) { 
+            if(!timeStr) return 0; 
+            let p = timeStr.split(':'); 
+            return parseInt(p[0]||0) * 3600 + parseInt(p[1]||0) * 60 + parseInt(p[2]||0); 
+        }
+
         // ==========================================
         // LEITOR DE PDF (MOTOR INTELIGENTE CORRIGIDO)
         // ==========================================
@@ -412,65 +419,41 @@
                 let t = tokens[i].trim();
                 if(!t) continue;
 
-                // 1. ANÁLISE DE NOME DO OPERADOR (LIMPEZA INTELIGENTE)
-                // Removemos horas ou datas que possam vir "coladas" no nome por erro de exportação do ERP
                 let limpo = t.toUpperCase().replace(/\d{2}:\d{2}:\d{2}/g, '').replace(/\d{2}\/\d{2}\/\d{4}/g, '').trim();
                 
-                // Exigimos no mínimo 5 letras e garantimos que a string NÃO começa com número
                 if (limpo.length >= 5 && !/^\d/.test(limpo)) {
-                    // Ignora cabeçalhos nativos do Procfit
                     const invalidos = ["TOTAL", "BUSINESS", "SUITE", "MOVIMENTO", "VALOR", "QTDE", "ROMANEIO", "NOME", "ORIGEM", "HORA", "USUARIO", "ANALISE", "RELATORIO", "LOC", "PÁGINA", "PAGE", "UNIT"];
                     let isValido = true;
                     invalidos.forEach(inv => { if(limpo.includes(inv)) isValido = false; });
                     
-                    // Conta quantas letras puras existem na string limpa
                     let apenasLetras = limpo.replace(/[^A-ZÀ-Ú]/g, '');
-                    
-                    // Se mais de metade da string for letras e não for cabeçalho, é o nome do Colaborador!
                     if (isValido && apenasLetras.length >= (limpo.length * 0.5)) {
                         currentOp = limpo; 
-                        
-                        // O Romaneio costuma aparecer nas próximas linhas
                         for(let j = i+1; j <= i+6 && j < tokens.length; j++) {
                             let nt = tokens[j].trim();
-                            if (/^\d{4,8}$/.test(nt)) {
-                                currentRom = nt;
-                                break;
-                            }
+                            if (/^\d{4,8}$/.test(nt)) { currentRom = nt; break; }
                         }
                     }
                 }
 
-                // 2. EXTRATOR DE HORA
                 let timeMatch = t.match(/\d{2}:\d{2}:\d{2}/);
-                if(timeMatch) {
-                    currentTime = timeMatch[0];
-                }
+                if(timeMatch) { currentTime = timeMatch[0]; }
                 
-                // 3. EXTRATOR DE ENDEREÇO (Ação Principal)
                 if(/^[A-Z]{1,2}\d{2}-\d{2}-\d{3}$/i.test(t)) {
                     let loc = t.toUpperCase();
-                    let qtde = 1;
-                    let vol = 1;
+                    let qtde = 1; let vol = 1;
                     
-                    // Pega Quantidade (próximo número inteiro ou float)
                     if(i+1 < tokens.length && /^\d+$/.test(tokens[i+1].trim())) qtde = parseFloat(tokens[i+1].trim());
                     if(i+2 < tokens.length && /^\d+$/.test(tokens[i+2].trim())) vol = parseFloat(tokens[i+2].trim());
                     
                     if(tipoImportacao === 'compras') {
                         parsedCompras.push({
-                            romaneio: currentRom,
-                            operador: currentOp,
-                            hora: currentTime,
-                            loc: loc,
-                            qtde: qtde,
-                            volume: vol
+                            romaneio: currentRom, operador: currentOp, hora: currentTime, loc: loc, qtde: qtde, volume: vol
                         });
                     } else if (tipoImportacao === 'ressup') {
                         if(!ressupDict[currentRom]) ressupDict[currentRom] = 0;
                         ressupDict[currentRom] += qtde;
                     }
-                    
                     currentTime = "00:00:00"; 
                 }
             }
@@ -521,7 +504,7 @@
         }
 
         // ==========================================
-        // CONTROLO DA INTERFACE (MUDAR ABAS E MODAIS)
+        // CONTROLO DA INTERFACE E MÉTODOS GERAIS
         // ==========================================
         function mudarAba(idAba) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active', 'text-sky-400', 'text-orange-400', 'text-emerald-400', 'text-purple-400'));
@@ -661,7 +644,13 @@
             try {
                 let e = String(item.loc).toUpperCase().trim(); let prefixo = e.startsWith('VR') ? 'VR' : (e.startsWith('VX') ? 'VX' : (e.startsWith('V') ? 'V' : ''));
                 let limpo = e.replace(prefixo, ''); let p = limpo.split('-'); if(p.length < 3) return null; let rua = parseInt(p[0]); let modulo = parseInt(p[1]); let posicao = parseInt(p[2]); if(isNaN(rua) || isNaN(modulo)) return null;
-                const coordGrafica = mapToGrid(rua, modulo, prefixo); const cor = getZonaCor(rua, modulo, prefixo); return { romaneio: item.romaneio, hora: item.hora, sec: timeToSeconds(item.hora), rua, modulo, posicao, prefixo, gx: coordGrafica.x, gy: coordGrafica.y, cor: cor, raw: e };
+                const coordGrafica = mapToGrid(rua, modulo, prefixo); const cor = getZonaCor(rua, modulo, prefixo); 
+                
+                // NOVA LÓGICA DE LINHA DO TEMPO CONTÍNUA
+                const secOriginal = timeToSeconds(item.hora);
+                const secContinuous = secOriginal < 43200 ? secOriginal + 86400 : secOriginal; // Se for antes do meio dia, soma 24h para ordenação perfeita
+                
+                return { romaneio: item.romaneio, hora: item.hora, sec: secContinuous, rua, modulo, posicao, prefixo, gx: coordGrafica.x, gy: coordGrafica.y, cor: cor, raw: e };
             } catch (err) { return null; }
         }
 
@@ -703,11 +692,9 @@
             desenharBlocoGeral(42, 42, 57, 90, 'rgba(236, 72, 153, 0.1)', COLORS.rosa, '42');
         }
 
-        function timeToSeconds(timeStr) { if(!timeStr) return 0; let p = timeStr.split(':'); return parseInt(p[0]||0) * 3600 + parseInt(p[1]||0) * 60 + parseInt(p[2]||0); }
-
         function desenharRotas() {
             const op = document.getElementById('selectRotaMapa').value; if(!op || !coordsPorOperador[op]) return; const coords = coordsPorOperador[op]; let maxDt = -1; let maxIndex = -1;
-            for(let i = 1; i < coords.length; i++) { if(coords[i].romaneio === coords[i-1].romaneio) { let dt = coords[i].sec - coords[i-1].sec; if(dt < 0) dt += 86400; if(dt > maxDt) { maxDt = dt; maxIndex = i; } } }
+            for(let i = 1; i < coords.length; i++) { if(coords[i].romaneio === coords[i-1].romaneio) { let dt = coords[i].sec - coords[i-1].sec; if(dt > maxDt) { maxDt = dt; maxIndex = i; } } }
             ctx.beginPath(); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 0.3; ctx.lineJoin = 'round'; ctx.setLineDash([0.5, 0.5]); ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 5;
             for(let i=0; i<coords.length; i++) { if(i === 0) ctx.moveTo(coords[i].gx, coords[i].gy); else ctx.lineTo(coords[i].gx, coords[i].gy); } ctx.stroke(); ctx.shadowBlur = 0; ctx.setLineDash([]);
             coords.forEach((p, i) => {
@@ -785,7 +772,24 @@
 
         function processarAlgoritmo() {
             if(rawCompras.length === 0) return;
-            motorDadosOp = {}; coordsPorOperador = {}; window.timelineOpData = {}; rawCompras.sort((a,b) => a.hora.localeCompare(b.hora)); let rotasPorRomaneio = {};
+            
+            // 1. ISOLAMENTO DO TURNO DE MADRUGADA (Ignora dados do turno do dia: 08:00 às 18:00)
+            rawCompras = rawCompras.filter(item => {
+                let s = timeToSeconds(item.hora);
+                if(s > 28800 && s < 64800) return false; // Exclui bipes entre 08:00 e 18:00
+                return true;
+            });
+
+            // 2. LINHA DO TEMPO CONTÍNUA (Garante que a madrugada venha DEPOIS da noite na ordenação)
+            rawCompras.forEach(item => {
+                let s = timeToSeconds(item.hora);
+                item.secShift = s < 43200 ? s + 86400 : s; // Horas antes do meio dia somam 24h
+            });
+
+            // 3. ORDENAÇÃO CRONOLÓGICA PERFEITA
+            rawCompras.sort((a,b) => a.secShift - b.secShift);
+
+            motorDadosOp = {}; coordsPorOperador = {}; window.timelineOpData = {}; let rotasPorRomaneio = {};
             let globalInsights = { maxEficVal: -1, topEficName: '-', maxGargaloSec: -1, topGargaloName: '-', topGargaloLoc: '-', totalPlanejado: 0 };
 
             rawCompras.forEach(item => { let op = item.operador; let rom = item.romaneio; if(!motorDadosOp[op]) motorDadosOp[op] = { qtde_real: 0, vol_real: 0, dist_metros: 0, planejado: 0, romaneios: new Set() }; motorDadosOp[op].qtde_real += item.qtde; motorDadosOp[op].vol_real += item.volume; motorDadosOp[op].romaneios.add(rom);
@@ -800,8 +804,14 @@
                 coordsOpGlobais.forEach((coordAtual, i) => {
                     let dt = 0; let isJanta = false;
                     if(i > 0) {
-                        let pSec = coordsOpGlobais[i-1].sec; dt = coordAtual.sec - pSec; if(dt < 0) dt += 86400; 
-                        if (dt >= 3000 && dt <= 7200) { let prevH = pSec / 3600; if (prevH >= 22 && prevH <= 23.5) { isJanta = true; } }
+                        let pSec = coordsOpGlobais[i-1].sec; 
+                        dt = coordAtual.sec - pSec; 
+                        // LÓGICA DE JANTA
+                        if (dt >= 3000 && dt <= 7200) { 
+                            let originalSec = pSec >= 86400 ? pSec - 86400 : pSec;
+                            let prevH = originalSec / 3600;
+                            if (prevH >= 22 && prevH <= 23.5) { isJanta = true; } 
+                        }
                     }
                     window.timelineOpData[op].push({ raw: coordAtual.raw, hora: coordAtual.hora, romaneio: coordAtual.romaneio, dt: dt, isJanta: isJanta });
                     if(i > 0 && coordAtual.romaneio === coordsOpGlobais[i-1].romaneio) { if(dt > maxDtOp && !isJanta) { maxDtOp = dt; maxLocOp = coordAtual.raw; } }
