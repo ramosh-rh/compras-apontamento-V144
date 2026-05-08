@@ -1,287 +1,691 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-PT">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Logística - Gestão de Pausas V3</title>
+    <title>WMS - Apontamento Compras (IA, Ranking & Mapa)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: white; margin: 0; display: flex; height: 100vh; overflow: hidden; }
-        
-        /* Barra Lateral - Importação e Nomes */
-        .sidebar { width: 300px; background: #1e1e1e; border-right: 2px solid #ff9800; display: flex; flex-direction: column; padding: 15px; }
-        .sidebar h2 { color: #ff9800; font-size: 1.2em; text-align: center; }
-        #lista-disponiveis { flex-grow: 1; overflow-y: auto; background: #252525; border-radius: 8px; padding: 10px; margin-top: 10px; border: 1px dashed #555; }
-        
-        .funcionario-item { background: #333; margin: 5px 0; padding: 10px; border-radius: 5px; cursor: grab; border-left: 4px solid #2196F3; font-weight: bold; font-size: 0.9em; transition: 0.2s; }
-        .funcionario-item:active { cursor: grabbing; opacity: 0.5; }
-
-        /* Painel Principal */
-        .main-content { flex-grow: 1; padding: 20px; overflow-y: auto; text-align: center; }
-        .container { max-width: 900px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 15px; border: 2px solid #ff9800; position: relative; }
-        
-        #clock { font-size: 2.5em; font-weight: bold; color: #00e676; margin-bottom: 10px; }
-        .mascote-container { height: 100px; display: flex; justify-content: center; align-items: center; }
-        .boneco { font-size: 60px; transition: 0.3s; }
-        
-        .status-card { background: #333; padding: 15px; border-radius: 10px; margin: 15px 0; border-left: 10px solid #ff9800; }
-        .nomes-ativos { font-size: 1.4em; color: #ffeb3b; font-weight: 900; text-transform: uppercase; min-height: 40px; }
-
-        /* Tabela de Horários - Áreas de Drop */
-        .grid-horarios { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 20px; }
-        .slot-horario { background: #252525; border: 1px solid #444; border-radius: 8px; padding: 10px; text-align: left; min-height: 80px; transition: 0.3s; }
-        .slot-horario.drag-over { border: 2px solid #00e676; background: #2e3d2e; }
-        .slot-header { font-weight: bold; color: #ff9800; border-bottom: 1px solid #444; margin-bottom: 5px; display: flex; justify-content: space-between; }
-        .slot-nomes { font-size: 0.85em; color: #fff; min-height: 30px; }
-        
-        /* Tags de nomes dentro do horário */
-        .nome-tag { background: #444; display: inline-block; padding: 2px 8px; border-radius: 4px; margin: 2px; font-size: 0.9em; border: 1px solid #666; }
-
-        .btn-acao { background: #ff9800; color: #000; border: none; padding: 8px 15px; border-radius: 5px; font-weight: bold; cursor: pointer; margin-bottom: 10px; width: 100%; }
-        .btn-teste { background: #d32f2f; color: #fff; width: auto; margin-left: 10px; }
-
-        /* Overlay Inicial */
-        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #121212; z-index: 1000; display: flex; flex-direction: column; justify-content: center; align-items: center; }
-        
-        @keyframes shake { 0% { transform: translate(1px, 1px); } 20% { transform: translate(-3px, 0px); } 100% { transform: translate(1px, -1px); } }
-        .alert-mode { animation: shake 0.5s infinite; color: #f44336; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap');
+        body { background-color: #0B1120; color: #f8fafc; font-family: 'Inter', sans-serif; overflow-x: hidden; }
+        .glass-panel { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid #1e293b; border-radius: 16px; padding: 24px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); }
+        .tab-btn { border-bottom: 2px solid transparent; padding-bottom: 0.5rem; transition: all 0.3s; color: #64748b; cursor: pointer; text-transform: uppercase; font-size: 0.875rem; font-weight: 700; letter-spacing: 0.05em; }
+        .tab-btn.active { border-bottom-color: #38bdf8; color: #38bdf8; text-shadow: 0 0 10px rgba(56, 189, 248, 0.4); }
+        .tab-content { display: none; animation: fadeIn 0.3s ease-in-out; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        #map-container { background-image: radial-gradient(#1e293b 1px, transparent 1px); background-size: 20px 20px; background-color: #0f172a; cursor: grab; }
+        #map-container:active { cursor: grabbing; }
+        table { border-collapse: separate; border-spacing: 0; width: 100%; }
+        th { background-color: #0f172a; color: #94a3b8; font-weight: 600; padding: 12px; border-bottom: 2px solid #1e293b; text-transform: uppercase; font-size: 0.7rem; }
+        td { padding: 12px; border-bottom: 1px solid #1e293b; font-size: 0.85rem; font-weight: 500; }
+        tr:hover td { background-color: #1e293b; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0B1120; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        .no-pdf { /* Hide from PDF */ }
     </style>
 </head>
-<body>
+<body class="p-4 md:p-6 relative">
 
-<div id="overlay">
-    <h1>Controle Logístico - Café</h1>
-    <button class="btn-acao" style="width: 300px; height: 80px; font-size: 1.5em;" onclick="iniciarApp()">ATIVAR SISTEMA</button>
-</div>
-
-<div class="sidebar">
-    <h2>Funcionários</h2>
-    <input type="file" id="inputExcel" accept=".xlsx, .xls" style="display: none;" onchange="importarExcel(event)">
-    <button class="btn-acao" onclick="document.getElementById('inputExcel').click()">📂 Importar Excel (.xlsx)</button>
-    <div id="lista-disponiveis" ondrop="dropNoPool(event)" ondragover="allowDrop(event)">
-        <p style="color: #666; text-align: center; font-size: 0.8em;">Importe a lista ou arraste nomes de volta para cá</p>
-    </div>
-</div>
-
-<div class="main-content">
-    <div class="container">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div id="clock">00:00:00</div>
-            <button class="btn-acao btn-teste" onclick="testarAlerta()">🚨 TESTAR ALARME</button>
-        </div>
-
-        <div class="mascote-container">
-            <div id="boneco" class="boneco">📦</div>
-        </div>
-
-        <div class="status-card">
-            <div id="status-label" style="color: #bbb; font-size: 0.9em;">AGORA NO CAFÉ:</div>
-            <div id="grupo-nome" class="nomes-ativos">NENHUMA EQUIPE</div>
-            <div id="aviso-saida" style="color: #f44336; font-weight: bold; display: none; font-size: 1.5em; margin-top: 10px;">⚠️ TEMPO ESGOTADO! SE RETIRE! ⚠️</div>
-        </div>
-
-        <div class="grid-horarios" id="grid-horarios">
+    <div class="max-w-[1600px] mx-auto space-y-6">
+        
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center glass-panel border-l-4 border-l-purple-500">
+            <div>
+                <h1 class="text-3xl font-black tracking-tight text-white flex items-center">
+                    WMS <span class="text-purple-400 ml-2">APONTAMENTO COMPRAS</span>
+                </h1>
+                <p class="text-slate-400 mt-1 text-sm">Ranking Global, Pente Fino, IA & Mapa Digital</p>
             </div>
-    </div>
-</div>
-
-<script>
-    let audioCtx;
-    let ultimaFala = "";
-    const horariosFixos = ["02:00", "02:10", "02:20", "02:30", "02:40", "02:50", "03:00", "03:10", "03:20", "03:30"];
-    let dadosEscala = {}; // { "02:00": ["Nome 1", "Nome 2"] }
-
-    function iniciarApp() {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        document.getElementById('overlay').style.display = 'none';
-        gerarGrid();
-        setInterval(atualizarLogica, 1000);
-    }
-
-    function gerarGrid() {
-        const grid = document.getElementById('grid-horarios');
-        grid.innerHTML = '';
-        horariosFixos.forEach(h => {
-            dadosEscala[h] = [];
-            grid.innerHTML += `
-                <div class="slot-horario" ondrop="dropNoHorario(event, '${h}')" ondragover="allowDrop(event)">
-                    <div class="slot-header"><span>🕒 ${h}</span></div>
-                    <div class="slot-nomes" id="slot-${h}"></div>
+            <div class="mt-4 md:mt-0 flex items-center bg-slate-900 px-4 py-2 rounded-xl border border-slate-700 shadow-inner">
+                <div class="text-2xl mr-3 relative">☁️<div class="absolute top-0 right-0 w-2 h-2 bg-emerald-500 rounded-full animate-ping"></div></div>
+                <div>
+                    <span class="block text-[10px] text-slate-500 uppercase font-black tracking-widest">Banco de Dados</span>
+                    <span class="text-sm text-emerald-400 font-bold" id="statusNuvem">Conectando Firebase...</span>
                 </div>
-            `;
-        });
-    }
+            </div>
+        </header>
 
-    // --- LOGICA DE DRAG AND DROP ---
-    function allowDrop(ev) { ev.preventDefault(); ev.currentTarget.classList.add('drag-over'); }
-    
-    // Quando sai de cima da área de drop
-    document.addEventListener("dragleave", function(ev) {
-        if (ev.target.classList) ev.target.classList.remove('drag-over');
-    });
-
-    function drag(ev) {
-        ev.dataTransfer.setData("nome", ev.target.innerText);
-        ev.dataTransfer.setData("origemId", ev.target.id);
-        // Se estiver saindo de um horário, removemos da lista
-        const pai = ev.target.parentElement;
-        if(pai.id.startsWith('slot-')) {
-            const h = pai.id.replace('slot-', '');
-            ev.dataTransfer.setData("horaOrigem", h);
-        }
-    }
-
-    function dropNoHorario(ev, hora) {
-        ev.preventDefault();
-        ev.currentTarget.classList.remove('drag-over');
-        const nome = ev.dataTransfer.getData("nome");
-        const horaOrigem = ev.dataTransfer.getData("horaOrigem");
-
-        // Remove da origem se veio de outro horário
-        if (horaOrigem) {
-            dadosEscala[horaOrigem] = dadosEscala[horaOrigem].filter(n => n !== nome);
-            renderizarSlot(horaOrigem);
-        } else {
-            // Se veio do pool lateral, remove de lá
-            const idOrigem = ev.dataTransfer.getData("origemId");
-            const el = document.getElementById(idOrigem);
-            if (el) el.remove();
-        }
-
-        if (!dadosEscala[hora].includes(nome)) {
-            dadosEscala[hora].push(nome);
-            renderizarSlot(hora);
-        }
-    }
-
-    function dropNoPool(ev) {
-        ev.preventDefault();
-        ev.currentTarget.classList.remove('drag-over');
-        const nome = ev.dataTransfer.getData("nome");
-        const horaOrigem = ev.dataTransfer.getData("horaOrigem");
-
-        if (horaOrigem) {
-            dadosEscala[horaOrigem] = dadosEscala[horaOrigem].filter(n => n !== nome);
-            renderizarSlot(horaOrigem);
-            adicionarAoPool(nome);
-        }
-    }
-
-    function renderizarSlot(h) {
-        const container = document.getElementById(`slot-${h}`);
-        container.innerHTML = dadosEscala[h].map(n => `<span class="nome-tag" draggable="true" ondragstart="drag(event)" id="tag-${Math.random()}">${n}</span>`).join('');
-    }
-
-    function adicionarAoPool(nome) {
-        const pool = document.getElementById('lista-disponiveis');
-        const div = document.createElement('div');
-        div.className = 'funcionario-item';
-        div.draggable = true;
-        div.id = 'func-' + Math.random();
-        div.innerText = nome;
-        div.ondragstart = drag;
-        pool.appendChild(div);
-    }
-
-    // --- IMPORTAÇÃO EXCEL ---
-    function importarExcel(event) {
-        const file = event.target.files[0];
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, {type: 'array'});
-            const nomePlanilha = workbook.SheetNames[0];
-            const planilha = workbook.Sheets[nomePlanilha];
-            const json = XLSX.utils.sheet_to_json(planilha, {header: 1});
+        <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
             
-            document.getElementById('lista-disponiveis').innerHTML = '';
-            json.forEach(linha => {
-                if(linha[0]) adicionarAoPool(linha[0]);
-            });
-        };
-        reader.readAsArrayBuffer(file);
-    }
+            <div class="col-span-1 xl:col-span-1 space-y-6">
+                <div class="glass-panel relative overflow-hidden">
+                    <div id="loaderImport" class="absolute inset-0 bg-slate-900/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center hidden">
+                        <div class="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                        <span class="text-[10px] font-bold text-sky-400 uppercase tracking-widest">A processar dados...</span>
+                    </div>
 
-    // --- ALERTAS E VOZ ---
-    function falar(texto) {
-        if (ultimaFala === texto) return;
-        ultimaFala = texto;
-        const msg = new SpeechSynthesisUtterance(texto);
-        msg.lang = 'pt-BR';
-        window.speechSynthesis.speak(msg);
-    }
+                    <h2 class="text-sm font-black text-slate-300 uppercase tracking-widest mb-4 flex items-center">
+                        <svg class="w-4 h-4 mr-2 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg> Importação
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="relative group">
+                            <label id="lblCompras" class="block text-[10px] font-bold text-slate-500 uppercase mb-1">1. Execução (Compra)</label>
+                            <input type="file" id="fileCompras" accept=".xlsx, .xls, .csv, .pdf" class="block w-full text-xs text-white file:py-2 file:px-3 file:rounded file:border-0 file:bg-sky-600 file:text-white file:font-bold cursor-pointer bg-slate-900 border border-slate-700 rounded">
+                        </div>
+                        <div class="relative group">
+                            <label id="lblRessup" class="block text-[10px] font-bold text-slate-500 uppercase mb-1">2. Planeado (Ressuprimento Total)</label>
+                            <input type="file" id="fileRessup" accept=".xlsx, .xls, .csv, .pdf" class="block w-full text-xs text-white file:py-2 file:px-3 file:rounded file:border-0 file:bg-teal-600 file:text-white file:font-bold cursor-pointer bg-slate-900 border border-slate-700 rounded">
+                        </div>
+                    </div>
+                </div>
 
-    function tocarSirene() {
-        if (!audioCtx) return;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(440, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.5);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1);
-        osc.connect(gain); gain.connect(audioCtx.destination);
-        osc.start(); osc.stop(audioCtx.currentTime + 1);
-    }
+                <div class="glass-panel">
+                    <h2 class="text-sm font-black text-slate-300 uppercase tracking-widest mb-3">Zonas Espaciais</h2>
+                    <div class="space-y-3 text-[11px] font-bold uppercase text-slate-400">
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#f59e0b] shadow-[0_0_8px_#f59e0b] mr-3"></div> Alimentos</div>
+                        <div class="text-[9px] text-slate-500 tracking-widest pt-1">— Mezanino —</div>
+                        <div class="flex items-center pl-2"><div class="w-3 h-3 rounded bg-[#fbbf24] shadow-[0_0_8px_#fbbf24] mr-3"></div> 1° Andar · Volumoso</div>
+                        <div class="flex items-center pl-2"><div class="w-3 h-3 rounded bg-[#a78bfa] shadow-[0_0_8px_#a78bfa] mr-3"></div> 2° Andar · Controlado</div>
+                        <div class="flex items-center pl-2"><div class="w-3 h-3 rounded bg-[#f472b6] shadow-[0_0_8px_#f472b6] mr-3"></div> 3° Andar · Dermos</div>
+                        <div class="border-t border-slate-700 pt-1"></div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#eab308] shadow-[0_0_8px_#eab308] mr-3"></div> Alto Perfumaria</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#22c55e] shadow-[0_0_8px_#22c55e] mr-3"></div> Baixo Perf/Alto Med</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#3b82f6] shadow-[0_0_8px_#3b82f6] mr-3"></div> Baixo Medicamento</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#ec4899] shadow-[0_0_8px_#ec4899] mr-3"></div> Ruas 40 e 42</div>
+                        <div class="flex items-center"><div class="w-3 h-3 rounded bg-[#94a3b8] shadow-[0_0_8px_#94a3b8] mr-3"></div> Geral (Ruas 10-20)</div>
+                    </div>
+                </div>
+            </div>
 
-    function testarAlerta() {
-        tocarSirene();
-        falar("Teste de áudio do sistema de café");
-    }
+            <div class="col-span-1 xl:col-span-4 space-y-6">
+                
+                <nav class="flex space-x-4 border-b border-slate-800 pb-2 px-2 overflow-x-auto">
+                    <button onclick="mudarAba('dash')" id="btn-dash" class="tab-btn active whitespace-nowrap">📊 KPIs Globais & Robô</button>
+                    <button onclick="mudarAba('mapa')" id="btn-mapa" class="tab-btn text-orange-400 whitespace-nowrap">📍 Digital Twin</button>
+                    <button onclick="mudarAba('acuracidade')" id="btn-acuracidade" class="tab-btn whitespace-nowrap text-purple-400">🏆 Ranking & Gargalos</button>
+                    <button onclick="mudarAba('rupturas')" id="btn-rupturas" class="tab-btn whitespace-nowrap text-red-400">📋 Pente Fino & Revisita</button>
+                    <button onclick="mudarAba('frota')" id="btn-frota" class="tab-btn whitespace-nowrap text-emerald-400">🚜 Frota (Nuvem)</button>
+                </nav>
 
-    function atualizarLogica() {
-        const agora = new Date();
-        const tempoH = agora.getHours().toString().padStart(2, '0') + ":" + agora.getMinutes().toString().padStart(2, '0');
-        document.getElementById('clock').innerText = agora.toLocaleTimeString();
+                <div id="aba-dash" class="tab-content active space-y-6">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="glass-panel text-center bg-gradient-to-b from-slate-800 to-slate-900"><span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Distância Total</span><br><span id="kpi_dist" class="text-4xl font-black text-white mt-2 block">0.0<span class="text-sm text-slate-500 ml-1">km</span></span></div>
+                        <div class="glass-panel text-center bg-gradient-to-b from-slate-800 to-slate-900"><span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Peças Coletadas</span><br><span id="kpi_pecas" class="text-4xl font-black text-white mt-2 block">0</span></div>
+                        <div class="glass-panel text-center bg-gradient-to-b from-slate-800 to-slate-900"><span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Alvo Planeado (Ressup)</span><br><span id="kpi_plan" class="text-4xl font-black text-white mt-2 block">0</span></div>
+                        <div class="glass-panel text-center bg-gradient-to-b from-slate-800 to-slate-900"><span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Média de Eficiência</span><br><span id="kpi_efi" class="text-4xl font-black text-emerald-400 mt-2 block">0<span class="text-sm text-emerald-700 ml-1">pc/km</span></span></div>
+                    </div>
 
-        let alguemNoCafe = false;
-        const boneco = document.getElementById('boneco');
-        const aviso = document.getElementById('aviso-saida');
+                    <h3 class="text-sm font-black text-slate-300 uppercase tracking-widest pt-4 border-t border-slate-800">🧠 Inteligência Operacional (Rankings Fechados)</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="glass-panel border-l-4 border-sky-500 flex flex-col justify-center relative overflow-hidden">
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Taxa de Atendimento</span>
+                            <span id="kpi_pct" class="text-3xl font-black text-sky-400 mt-1">0.0%</span>
+                        </div>
+                        <div class="glass-panel border-l-4 border-emerald-500 flex flex-col justify-center">
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">🏆 Top Eficiência (PC/KM)</span>
+                            <span id="kpi_top_efi" class="text-lg font-black text-emerald-400 mt-1 line-clamp-1">-</span>
+                            <span class="text-[9px] text-slate-500 mt-1">*Corte min. aplicado</span>
+                        </div>
+                        <div class="glass-panel border-l-4 border-purple-500 flex flex-col justify-center">
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">🏅 Top Assertividade (%)</span>
+                            <span id="kpi_top_acu" class="text-lg font-black text-purple-400 mt-1 line-clamp-1">-</span>
+                            <span class="text-[9px] text-slate-500 mt-1">*Maior taxa de acerto</span>
+                        </div>
+                        <div class="glass-panel border-l-4 border-red-500 flex flex-col justify-center relative overflow-hidden">
+                            <div class="absolute right-[-10px] top-[-10px] text-6xl opacity-10">🔥</div>
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Maior Gargalo Global</span>
+                            <span id="kpi_gargalo_nome" class="text-md font-black text-white mt-1 line-clamp-1">-</span>
+                            <span id="kpi_gargalo_detalhe" class="text-xs font-bold text-red-400 mt-1 bg-red-900/30 inline-block px-1 py-0.5 rounded">-</span>
+                        </div>
+                    </div>
+                </div>
 
-        horariosFixos.forEach((h, index) => {
-            const [hora, min] = h.split(':').map(Number);
-            const inicio = hora * 60 + min;
-            const fim = inicio + 10;
-            const agoraMinutos = agora.getHours() * 60 + agora.getMinutes();
-            const slotEl = document.getElementById(`slot-${h}`).parentElement;
+                <div id="aba-mapa" class="tab-content">
+                    <div class="glass-panel flex flex-col h-[750px] p-0 overflow-hidden relative">
+                        <div class="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-10 shadow-lg">
+                            <div>
+                                <h2 class="text-sm font-bold text-white uppercase tracking-widest flex items-center">
+                                    Navegação Espacial <span class="ml-3 text-[10px] bg-red-900/50 text-red-400 border border-red-700 px-2 py-0.5 rounded-full">🔥 FIREBALL ATIVADO</span>
+                                </h2>
+                            </div>
+                            <div class="flex gap-3">
+                                <button onclick="resetZoom()" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-xs font-bold transition">Reset View</button>
+                                <select id="selectRotaMapa" onchange="renderEngine()" class="bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-xs text-orange-400 font-bold focus:outline-none w-64 shadow-inner">
+                                    <option value="">Apenas Planta do Armazém</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="map-container" class="flex-1 relative w-full h-full"><canvas id="canvasEngine" class="absolute inset-0 w-full h-full"></canvas></div>
+                    </div>
+                </div>
 
-            if (agoraMinutos >= inicio && agoraMinutos < fim) {
-                alguemNoCafe = true;
-                slotEl.classList.add('active-row');
-                const nomes = dadosEscala[h].join(', ') || "EQUIPE NÃO DEFINIDA";
-                document.getElementById('grupo-nome').innerText = nomes;
+                <div id="aba-acuracidade" class="tab-content space-y-6">
+                    <div class="glass-panel">
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                            <div>
+                                <h2 class="text-xl font-black text-white">🏆 Ranking Global de Produtividade</h2>
+                                <p class="text-xs text-slate-400">Lista completa com a classificação de todos os operadores por Eficiência (PC/KM).</p>
+                            </div>
+                        </div>
 
-                if (agoraMinutos === fim - 1) { // Último minuto
-                    aviso.style.display = "block";
-                    boneco.innerText = "🙅‍♂️";
-                    boneco.classList.add('alert-mode');
-                    if (agora.getSeconds() % 10 === 0) {
-                        tocarSirene();
-                        falar(`Equipe das ${h} acabou seu tempo por favor se retira`);
-                    }
-                } else if (agoraMinutos === inicio && agora.getSeconds() < 15) {
-                    boneco.innerText = "🚶‍♂️➡️☕";
-                    boneco.classList.remove('alert-mode');
-                    aviso.style.display = "none";
-                } else {
-                    boneco.innerText = "☕";
-                    boneco.classList.remove('alert-mode');
-                    aviso.style.display = "none";
-                }
-            } else {
-                slotEl.classList.remove('active-row');
+                        <div id="tabelaParaPDF" class="bg-slate-900 border border-slate-700 rounded-lg p-4">
+                            <div class="overflow-x-auto">
+                                <table id="tbAcuracidade">
+                                    <thead>
+                                        <tr>
+                                            <th class="w-16 text-center text-yellow-500 text-lg">#</th>
+                                            <th>Operador</th>
+                                            <th class="text-right">Km Percorr.</th>
+                                            <th class="text-right text-emerald-400 font-black">Efic. (pc/km)</th>
+                                            <th class="text-right">Alvo Plan.</th>
+                                            <th class="text-right text-sky-400">Coletado</th>
+                                            <th class="text-right text-purple-400">Assertividade %</th>
+                                            <th class="text-center text-red-400">🔥 Onde Perdeu + Tempo (Gargalo)</th>
+                                            <th class="text-center no-pdf text-purple-400">Linha de Tempo</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bodyAcuracidade"><tr><td colspan="9" class="text-center py-12 text-slate-600 font-mono text-xs">Importe os 2 ficheiros para cruzar os dados e gerar o Ranking.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="aba-rupturas" class="tab-content space-y-6">
+                    <div class="glass-panel">
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                            <div>
+                                <h2 class="text-xl font-black text-white flex items-center">📋 Pente Fino & Revisita</h2>
+                                <p class="text-xs text-slate-400 mt-1">Descubra exatamente quem deixou produto para trás e exporte a lista para a equipa auditar.</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="exportarCSVRevisita()" class="bg-[#107c41] hover:bg-green-700 text-white px-4 py-2 rounded font-bold text-sm shadow-lg transition flex items-center justify-center">
+                                    <span class="mr-2">📊</span> Excel (CSV)
+                                </button>
+                                <button onclick="exportarPDFRevisita()" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded font-bold text-sm shadow-[0_0_15px_rgba(220,38,38,0.4)] transition flex items-center justify-center">
+                                    <span class="mr-2">🖨️</span> Imprimir PDF
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4 no-pdf relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <span class="text-slate-500">🔍</span>
+                            </div>
+                            <input type="text" id="filtroRevisita" onkeyup="filtrarRevisita()" placeholder="Pente Fino: Digite o Operador, Romaneio, Endereço ou Código..." class="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 pl-10 pr-4 text-white text-sm focus:outline-none focus:border-red-500 shadow-inner transition placeholder-slate-600">
+                        </div>
+
+                        <div id="divPDFRevisita" class="bg-slate-900 border border-slate-700 rounded-lg p-4">
+                            <div class="text-center mb-4 pdf-header" style="display:none;">
+                                <h2 class="text-xl font-black text-black">RELATÓRIO DE PENTE FINO (REVISITA)</h2>
+                                <p class="text-xs text-slate-600" id="dataRevisitaPDF"></p>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table id="tbRupturas" class="text-sm whitespace-nowrap">
+                                    <thead>
+                                        <tr>
+                                            <th class="text-left text-purple-400">Operador Responsável</th>
+                                            <th>Romaneio</th>
+                                            <th class="text-left">Endereço (Loc)</th>
+                                            <th>Código</th>
+                                            <th class="text-left max-w-[200px]">Descrição</th>
+                                            <th class="text-center text-slate-500">Plan.</th>
+                                            <th class="text-center text-sky-400">Colet.</th>
+                                            <th class="text-center text-orange-400">% Concluído</th>
+                                            <th class="text-center text-red-400 bg-red-900/20 font-black">FALTOU</th>
+                                            <th class="text-center no-pdf">Ação</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bodyRupturas"><tr><td colspan="10" class="text-center py-12 text-slate-600 font-mono text-xs">Importe os ficheiros para gerar a lista.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="aba-frota" class="tab-content space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="glass-panel border-l-4 border-emerald-500">
+                            <h3 class="text-xs font-bold text-slate-400 uppercase">Equipamentos Operacionais</h3>
+                            <p class="text-3xl font-black text-emerald-400 mt-1" id="kpi_frota_ok">0</p>
+                        </div>
+                        <div class="glass-panel border-l-4 border-red-500">
+                            <h3 class="text-xs font-bold text-slate-400 uppercase">Equipamentos em Manutenção</h3>
+                            <p class="text-3xl font-black text-red-400 mt-1" id="kpi_frota_broken">0</p>
+                        </div>
+                        <div class="glass-panel border-l-4 border-orange-500 bg-orange-900/10">
+                            <h3 class="text-xs font-bold text-slate-400 uppercase">Impacto Retido (Cx/Peças)</h3>
+                            <p class="text-3xl font-black text-orange-400 mt-1" id="kpi_frota_impact">0</p>
+                        </div>
+                    </div>
+                    <div class="glass-panel">
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                            <div>
+                                <h2 class="text-lg font-bold text-white">Quadro de Disponibilidade</h2>
+                            </div>
+                            <div class="flex gap-2 w-full md:w-auto">
+                                <button onclick="enviarWhatsAppFrota()" class="flex-1 md:flex-none bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-2 rounded font-bold text-sm shadow-[0_0_15px_rgba(37,211,102,0.4)] transition">💬 Partilhar WA</button>
+                                <button onclick="abrirModalNovoEquip()" class="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded font-bold text-sm shadow-lg transition">➕ Cadastrar Equip.</button>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto rounded-lg border border-slate-700">
+                            <table id="tbFrota">
+                                <thead><tr><th>Equipamento</th><th>Tipo</th><th>Status</th><th class="text-center">Capacidade/Dia</th><th class="text-center">Data da Parada</th><th class="text-center text-red-400">Dias Parado</th><th class="text-right text-orange-400">Impacto (Perda)</th><th class="text-center">Ações</th></tr></thead>
+                                <tbody id="bodyFrota"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <button id="btnRobot" onclick="toggleRobot()" class="fixed bottom-6 right-6 bg-gradient-to-r from-sky-500 to-indigo-600 text-white w-16 h-16 rounded-full shadow-[0_0_20px_rgba(99,102,241,0.6)] flex items-center justify-center text-3xl hover:scale-110 hover:rotate-12 transition-all z-50">🤖</button>
+    <div id="panelRobot" class="fixed bottom-24 right-6 w-80 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl hidden flex-col z-50 overflow-hidden transform transition-all duration-300">
+        <div class="bg-gradient-to-r from-sky-500 to-indigo-600 p-3 flex justify-between items-center">
+            <span class="font-bold text-white text-sm flex items-center">🤖 Robô WMS (Análise IA)</span>
+            <button onclick="toggleRobot()" class="text-white hover:text-slate-300 font-bold">✖</button>
+        </div>
+        <div class="p-5 text-sm text-slate-300 space-y-3 leading-relaxed" id="robotContent">
+            Olá, Mestre! Sou o seu assistente. Importe as duas planilhas (Executado e Planeado) e eu farei uma análise completa da operação aqui mesmo!
+        </div>
+    </div>
+
+    <div id="modalTimeline" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden items-center justify-center z-50 p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl shadow-2xl flex flex-col h-[80vh]">
+            <div class="p-6 border-b border-slate-800 flex justify-between items-center">
+                <div>
+                    <h3 class="text-xl font-black text-purple-400 flex items-center">🔍 Extrato de Endereços (Gargalos)</h3>
+                    <p class="text-sm text-slate-300 mt-1">Colaborador(a): <span id="timelineOpNome" class="font-bold text-white"></span></p>
+                </div>
+                <button onclick="fecharModalTimeline()" class="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition text-xl leading-none">✖</button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-0">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-950 sticky top-0 shadow-md">
+                        <tr><th class="p-3 text-slate-400 font-bold uppercase text-[10px]">Hora</th><th class="p-3 text-sky-400 font-bold uppercase text-[10px]">Endereço</th><th class="p-3 text-slate-400 font-bold uppercase text-[10px]">Romaneio</th><th class="p-3 text-right text-purple-400 font-bold uppercase text-[10px]">Tempo Gasto neste Local</th></tr>
+                    </thead>
+                    <tbody id="bodyTimeline" class="text-slate-300"></tbody>
+                </table>
+            </div>
+            <div class="p-4 bg-slate-950 border-t border-slate-800 text-xs text-slate-500 flex justify-between">
+                <span>⏱️ = Atenção (> 5 min)</span><span>⚠️ = Gargalo Crítico (> 10 min)</span><span class="text-blue-400 font-bold">🍽️ = Pausa Janta (Ignorado)</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="modalNovoEquip" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center z-50"><div class="bg-slate-900 border border-slate-700 p-6 rounded-xl w-[400px] shadow-2xl"><h3 class="text-lg font-black text-emerald-400 mb-4 flex items-center">➕ Novo Equipamento</h3><div class="space-y-4"><div><label class="block text-xs font-bold text-slate-400 mb-1">Nome:</label><input type="text" id="novoEqNome" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div><div><label class="block text-xs font-bold text-slate-400 mb-1">Tipo:</label><select id="novoEqTipo" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"><option value="Selecionadora">Selecionadora</option><option value="Empilhadeira">Empilhadeira</option><option value="Paleteira">Paleteira</option><option value="Coletor">Coletor</option><option value="Outros">Outros</option></select></div><div><label class="block text-xs font-bold text-slate-400 mb-1">Capacidade (Cx/Dia):</label><input type="number" id="novoEqCapacidade" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div><div class="flex gap-2 pt-4"><button onclick="fecharModalNovoEquip()" class="flex-1 bg-slate-700 text-white py-2 rounded text-sm font-bold">Cancelar</button><button onclick="salvarNovoEquip()" class="flex-1 bg-emerald-600 text-white py-2 rounded text-sm font-bold">Guardar</button></div></div></div></div>
+    <div id="modalQuebra" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center z-50"><div class="bg-slate-900 border border-slate-700 p-6 rounded-xl w-96 shadow-2xl"><h3 class="text-lg font-black text-red-400 mb-2">⚠️ Informar Avaria</h3><input type="hidden" id="modalEqId"><div class="space-y-4"><div><label class="block text-xs font-bold text-slate-400 mb-1">Data Paragem:</label><input type="date" id="modalData" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div><div class="flex gap-2 pt-2"><button onclick="fecharModalQuebra()" class="flex-1 bg-slate-700 text-white py-2 rounded text-sm font-bold">Cancelar</button><button onclick="confirmarQuebra()" class="flex-1 bg-red-600 text-white py-2 rounded text-sm font-bold">Paralisar</button></div></div></div></div>
+    <div id="modalEdicao" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center z-50"><div class="bg-slate-900 border border-slate-700 p-6 rounded-xl w-[400px] shadow-2xl"><h3 class="text-lg font-black text-sky-400 mb-4">✏️ Editar Equipamento</h3><input type="hidden" id="editEqId"><div class="space-y-4"><div><label class="block text-xs font-bold text-slate-400 mb-1">Nome:</label><input type="text" id="editEqNome" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div><div class="grid grid-cols-2 gap-2"><div><label class="block text-xs font-bold text-slate-400 mb-1">Tipo:</label><select id="editEqTipo" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"><option value="Selecionadora">Selecionadora</option><option value="Empilhadeira">Empilhadeira</option><option value="Paleteira">Paleteira</option><option value="Coletor">Coletor</option><option value="Outros">Outros</option></select></div><div><label class="block text-xs font-bold text-slate-400 mb-1">Cap/Dia:</label><input type="number" id="editEqCapacidade" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div></div><div><label class="block text-xs font-bold text-slate-400 mb-1">Status Atual:</label><select id="editEqStatus" onchange="toggleEditData()" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"><option value="ok">Operacional</option><option value="quebrado">Em Manutenção</option></select></div><div id="divEditData" class="hidden border-t border-slate-700 pt-3 mt-3"><label class="block text-xs font-bold text-red-400 mb-1">Data da Paragem:</label><input type="date" id="editEqData" class="w-full bg-slate-800 border border-red-900 rounded p-2 text-white text-sm"></div><div class="flex gap-2 pt-4 border-t border-slate-700"><button onclick="fecharModalEdicao()" class="flex-1 bg-slate-700 text-white py-2 rounded text-sm font-bold">Cancelar</button><button onclick="salvarEdicao()" class="flex-1 bg-sky-600 text-white py-2 rounded text-sm font-bold">Guardar</button></div></div></div></div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        // ==========================================
+        // CONFIGURAÇÃO FIREBASE & GLOBAIS
+        // ==========================================
+        const firebaseConfig = { apiKey: "AIzaSyCiL4_3YqPQnXSb-Yr67jFxZO7Sp5x1MRs", authDomain: "apontamento-compras.firebaseapp.com", databaseURL: "https://apontamento-compras-default-rtdb.firebaseio.com", projectId: "apontamento-compras", storageBucket: "apontamento-compras.firebasestorage.app", messagingSenderId: "428465365710", appId: "1:428465365710:web:d6fca9fbc248df4d92e69f" };
+        let db; try { firebase.initializeApp(firebaseConfig); db = firebase.firestore(); document.getElementById('statusNuvem').innerText = "ONLINE"; document.getElementById('statusNuvem').classList.replace("text-emerald-400", "text-sky-400"); } catch (error) { document.getElementById('statusNuvem').innerText = "OFFLINE"; document.getElementById('statusNuvem').classList.replace("text-emerald-400", "text-red-400"); }
+
+        window.timelineOpData = {}; 
+        let frota = []; const HOJE = new Date("2026-05-04T00:00:00");
+        let rawCompras = []; let baseRessup = {}; 
+        let listaRupturasGlobais = [];
+
+        function toggleRobot() { const painel = document.getElementById('panelRobot'); painel.classList.toggle('hidden'); painel.classList.toggle('flex'); }
+
+        function timeToSeconds(timeStr) { if(!timeStr) return 0; let p = timeStr.split(':'); return parseInt(p[0]||0) * 3600 + parseInt(p[1]||0) * 60 + parseInt(p[2]||0); }
+        function formatarTempoExtenso(segundos) { if(segundos === 0) return "-"; let h = Math.floor(segundos / 3600); let m = Math.floor((segundos % 3600) / 60); let s = segundos % 60; let str = ""; if(h > 0) str += `${h}h `; if(m > 0) str += `${m}m `; str += `${s}s`; return str; }
+        function formatarTempoCurto(segundos) { let m = Math.floor(segundos / 60); let s = segundos % 60; return `${m}m ${s}s`; }
+        function limpaRom(str) { if (!str) return "DESC"; let s = String(str).trim(); s = s.replace(/^0+/, ''); return s === "" ? "DESC" : s.toUpperCase(); }
+
+        // ==========================================
+        // GESTÃO DE ABAS E MAPA FIX
+        // ==========================================
+        function mudarAba(idAba) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active', 'text-sky-400', 'text-orange-400', 'text-emerald-400', 'text-purple-400', 'text-red-400'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            const btn = document.getElementById('btn-' + idAba); btn.classList.add('active');
+            if(idAba === 'mapa') btn.classList.add('text-orange-400'); else if(idAba === 'frota') btn.classList.add('text-emerald-400'); else if(idAba === 'acuracidade') btn.classList.add('text-purple-400'); else if(idAba === 'rupturas') btn.classList.add('text-red-400'); else btn.classList.add('text-sky-400');
+            document.getElementById('aba-' + idAba).classList.add('active'); 
+            
+            // CORREÇÃO DO MAPA INVISÍVEL
+            if(idAba === 'mapa') {
+                setTimeout(() => {
+                    resizeCanvas();
+                    resetZoom();
+                    renderEngine();
+                }, 50);
             }
+        }
+
+        // ==========================================
+        // SISTEMA DE FROTA
+        // ==========================================
+        async function carregarBancoFrota() { if(!db) return; try { const snapshot = await db.collection("equipamentos").get(); frota = []; if(snapshot.empty) { let defaultEq = { id: Date.now(), nome: "Selecionadora 01", tipo: "Selecionadora", status: "ok", dataParada: null, capDiaria: 1500 }; const docRef = await db.collection("equipamentos").add(defaultEq); defaultEq.firebaseId = docRef.id; frota.push(defaultEq); } else { snapshot.forEach(doc => { let eq = doc.data(); eq.firebaseId = doc.id; frota.push(eq); }); } renderFrota(); } catch(e) {} }
+        function calcularDiasParados(dataStr) { if(!dataStr) return 0; const dParada = new Date(dataStr + "T00:00:00"); let dias = Math.ceil((HOJE - dParada) / (1000 * 60 * 60 * 24)); return dias < 0 ? 0 : (dias === 0 ? 1 : dias); }
+        function renderFrota() { const tbody = document.getElementById('bodyFrota'); let rowsHTML = ""; let countOk = 0, countBroken = 0, totalImpact = 0; frota.forEach(eq => { let diasParado = 0; let impacto = 0; if (eq.status === 'ok') { countOk++; } else { countBroken++; diasParado = calcularDiasParados(eq.dataParada); impacto = diasParado * eq.capDiaria; totalImpact += impacto; } const trClass = eq.status === 'ok' ? 'text-slate-300' : 'bg-red-900/10 text-red-200 border-l-2 border-red-500'; const statusBadge = eq.status === 'ok' ? '<span class="bg-emerald-900/50 text-emerald-400 px-2 py-1 rounded text-[10px] font-bold">OPERACIONAL</span>' : '<span class="bg-red-900/50 text-red-400 px-2 py-1 rounded text-[10px] font-bold animate-pulse">AVARIADO</span>'; let btnAction = eq.status === 'ok' ? `<button onclick="abrirModalQuebra(${eq.id})" class="text-[10px] bg-slate-700 hover:bg-red-600 text-white px-2 py-1 rounded transition mr-1">⚠️</button>` : `<button onclick="consertarEquip(${eq.id})" class="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded shadow-[0_0_10px_rgba(16,185,129,0.5)] transition mr-1">✓</button>`; btnAction += `<button onclick="abrirModalEdicao(${eq.id})" class="text-[10px] bg-sky-800 hover:bg-sky-600 text-white px-2 py-1 rounded transition mr-1">✏️</button><button onclick="excluirEquip(${eq.id})" class="text-[10px] bg-slate-800 hover:bg-slate-600 text-slate-400 px-2 py-1 rounded transition">✖</button>`; rowsHTML += `<tr class="${trClass}"><td class="font-bold">${eq.nome}</td><td class="text-xs text-slate-400">${eq.tipo}</td><td>${statusBadge}</td><td class="text-center font-mono">${eq.capDiaria.toLocaleString()}</td><td class="text-center text-xs font-mono">${eq.dataParada ? eq.dataParada.split('-').reverse().join('/') : '-'}</td><td class="text-center font-black ${diasParado > 0 ? 'text-red-400' : 'text-slate-600'}">${diasParado}</td><td class="text-right font-black ${eq.status === 'ok' ? 'text-slate-600' : 'text-orange-400'}">${eq.status === 'ok' ? 'N/A' : '-' + impacto.toLocaleString() + ' cx'}</td><td class="text-center whitespace-nowrap">${btnAction}</td></tr>`; }); tbody.innerHTML = rowsHTML || `<tr><td colspan="8" class="text-center py-6 text-slate-500 text-sm">Nenhum equipamento registado.</td></tr>`; document.getElementById('kpi_frota_ok').innerText = countOk; document.getElementById('kpi_frota_broken').innerText = countBroken; document.getElementById('kpi_frota_impact').innerText = totalImpact.toLocaleString(); }
+        function enviarWhatsAppFrota() { let countOk = 0, countBroken = 0, totalImpact = 0; let msgAvarias = ""; frota.forEach(eq => { if(eq.status === 'ok') countOk++; else { countBroken++; let dias = calcularDiasParados(eq.dataParada); let imp = dias * eq.capDiaria; totalImpact += imp; msgAvarias += `\n⚠️ *${eq.nome}* (${eq.tipo})\n⏳ Parada há: ${dias} dia(s)\n📉 Impacto: -${imp.toLocaleString()} caixas\n`; }}); let textoWa = `🚜 *RESUMO DE FROTA - DISPONIBILIDADE TÉCNICA* 🚜\n\n✅ *Operacionais:* ${countOk}\n🚨 *Em Manutenção:* ${countBroken}\n🔥 *IMPACTO TOTAL RETIDO:* -${totalImpact.toLocaleString()} caixas/peças\n`; if(countBroken > 0) textoWa += `\n*DETALHAMENTO:*${msgAvarias}`; else textoWa += `\n🚀 Frota 100% operacional no momento!`; window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent(textoWa), '_blank'); }
+        function abrirModalNovoEquip() { document.getElementById('modalNovoEquip').classList.remove('hidden'); document.getElementById('modalNovoEquip').classList.add('flex'); } function fecharModalNovoEquip() { document.getElementById('modalNovoEquip').classList.add('hidden'); document.getElementById('modalNovoEquip').classList.remove('flex'); } async function salvarNovoEquip() { const nome = document.getElementById('novoEqNome').value.trim(); const tipo = document.getElementById('novoEqTipo').value; const cap = parseInt(document.getElementById('novoEqCapacidade').value); if(!nome || isNaN(cap) || cap <= 0) return alert("Erro nos dados"); const btn = event.target; btn.innerText = "A guardar..."; let novoEq = { id: Date.now(), nome: nome, tipo: tipo, status: 'ok', dataParada: null, capDiaria: cap }; try { const docRef = await db.collection("equipamentos").add(novoEq); novoEq.firebaseId = docRef.id; frota.push(novoEq); fecharModalNovoEquip(); renderFrota(); } catch(e) { } finally { btn.innerText = "Guardar"; } }
+        function abrirModalQuebra(id) { document.getElementById('modalEqId').value = id; document.getElementById('modalData').value = "2026-05-04"; document.getElementById('modalQuebra').classList.remove('hidden'); document.getElementById('modalQuebra').classList.add('flex'); } function fecharModalQuebra() { document.getElementById('modalQuebra').classList.add('hidden'); document.getElementById('modalQuebra').classList.remove('flex'); } async function confirmarQuebra() { const eq = frota.find(e => e.id === parseInt(document.getElementById('modalEqId').value)); if(eq) { const dataStr = document.getElementById('modalData').value; try { await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'quebrado', dataParada: dataStr }); eq.status = 'quebrado'; eq.dataParada = dataStr; } catch(e) { } } fecharModalQuebra(); renderFrota(); }
+        function abrirModalEdicao(id) { const eq = frota.find(e => e.id === id); if(!eq) return; document.getElementById('editEqId').value = id; document.getElementById('editEqNome').value = eq.nome; document.getElementById('editEqTipo').value = eq.tipo; document.getElementById('editEqCapacidade').value = eq.capDiaria; document.getElementById('editEqStatus').value = eq.status; document.getElementById('editEqData').value = eq.dataParada || "2026-05-04"; toggleEditData(); document.getElementById('modalEdicao').classList.remove('hidden'); document.getElementById('modalEdicao').classList.add('flex'); } function toggleEditData() { document.getElementById('divEditData').classList[document.getElementById('editEqStatus').value === 'quebrado' ? 'remove' : 'add']('hidden'); } function fecharModalEdicao() { document.getElementById('modalEdicao').classList.add('hidden'); document.getElementById('modalEdicao').classList.remove('flex'); } async function salvarEdicao() { const eq = frota.find(e => e.id === parseInt(document.getElementById('editEqId').value)); if(!eq) return; const novoNome = document.getElementById('editEqNome').value; const novoTipo = document.getElementById('editEqTipo').value; const novaCap = parseInt(document.getElementById('editEqCapacidade').value); const novoStatus = document.getElementById('editEqStatus').value; const novaData = novoStatus === 'quebrado' ? document.getElementById('editEqData').value : null; try { await db.collection("equipamentos").doc(eq.firebaseId).update({ nome: novoNome, tipo: novoTipo, capDiaria: novaCap, status: novoStatus, dataParada: novaData }); eq.nome = novoNome; eq.tipo = novoTipo; eq.capDiaria = novaCap; eq.status = novoStatus; eq.dataParada = novaData; } catch(e) { } fecharModalEdicao(); renderFrota(); }
+        async function consertarEquip(id) { const eq = frota.find(e => e.id === id); if(eq) { try { await db.collection("equipamentos").doc(eq.firebaseId).update({ status: 'ok', dataParada: null }); eq.status = 'ok'; eq.dataParada = null; } catch(e) {} } renderFrota(); } async function excluirEquip(id) { if(confirm("Deseja excluir permanentemente?")) { const eq = frota.find(e => e.id === id); try { await db.collection("equipamentos").doc(eq.firebaseId).delete(); frota = frota.filter(e => e.id !== id); } catch(e) {} renderFrota(); } }
+
+        // ==========================================
+        // LEITORES DE EXCEL
+        // ==========================================
+        function parseComprasExcel(data) {
+            let result = []; let currentOp = "Desconhecido"; let currentRom = "DESC";
+            for(let r=0; r<data.length; r++) {
+                let row = data[r]; if(!row || row.length < 2) continue;
+                let c1 = String(row[1]||"").trim(); let c2 = String(row[2]||"").trim(); let c3 = String(row[3]||"").trim(); 
+                let c4 = String(row[4]||"").trim(); let c5 = String(row[5]||"").trim(); let c6 = String(row[6]||"").trim(); 
+                let c7 = parseFloat(String(row[7]||"").replace(',','.')); let c8 = parseFloat(String(row[8]||"").replace(',','.'));
+
+                if (c1 && c1 !== "Nome" && c1 !== "Romaneio" && !c3.includes(":")) {
+                    if (/^\d+$/.test(c1)) { currentRom = limpaRom(c1); if (c2) currentOp = c2; }
+                    else { currentOp = c1; if (/^\d+$/.test(c2)) currentRom = limpaRom(c2); }
+                }
+
+                if (c4.toUpperCase().startsWith("V") && c3.includes(":")) {
+                    result.push({ operador: currentOp, romaneio: currentRom, hora: c3, loc: c4.toUpperCase(), produto: c5 || "S/ COD", descricao: c6 || "Sem Descrição", qtde: isNaN(c7) ? 1 : c7, volume: isNaN(c8) ? 0 : c8 });
+                }
+            }
+            return result;
+        }
+
+        function parseRessupExcel(data) {
+            let result = [];
+            for(let r=0; r<data.length; r++) {
+                let row = data[r]; if(!row || row.length < 5) continue;
+                let rom = String(row[2]||"").trim(); if(rom.toLowerCase() === "romaneio" || !rom) continue; 
+                let loc = String(row[3]||"").trim().toUpperCase(); let prod = String(row[4]||"").trim(); let desc = String(row[5]||"").trim(); let qtde = parseFloat(String(row[6]||"").replace(',','.')); 
+                if (loc.startsWith("V") && !isNaN(qtde)) { result.push({ romaneio: limpaRom(rom), loc: loc, produto: prod, descricao: desc, qtde: qtde }); }
+            }
+            return result;
+        }
+
+        document.getElementById('fileCompras').addEventListener('change', function(e) {
+            const file = e.target.files[0]; if(!file) return; const reader = new FileReader(); document.getElementById('loaderImport').classList.remove('hidden');
+            reader.onload = function(evt) { rawCompras = parseComprasExcel(XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).Sheets[XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).SheetNames[0]], {header: 1, raw: false, defval: ""})); document.getElementById('lblCompras').innerHTML = '1. Execução <span class="text-sky-400">✓ OK</span>'; document.getElementById('loaderImport').classList.add('hidden'); processarAlgoritmo(); }; reader.readAsArrayBuffer(file);
         });
 
-        if (!alguemNoCafe) {
-            document.getElementById('grupo-nome').innerText = "NENHUMA EQUIPE NO CAFÉ";
-            boneco.innerText = "📦";
-            aviso.style.display = "none";
-            boneco.classList.remove('alert-mode');
-            ultimaFala = "";
-        }
-    }
-</script>
+        document.getElementById('fileRessup').addEventListener('change', function(e) {
+            const file = e.target.files[0]; if(!file) return; const reader = new FileReader(); document.getElementById('loaderImport').classList.remove('hidden');
+            reader.onload = function(evt) { let ressupParsed = parseRessupExcel(XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).Sheets[XLSX.read(new Uint8Array(evt.target.result), {type: 'array'}).SheetNames[0]], {header: 1, raw: false, defval: ""})); baseRessup = {}; ressupParsed.forEach(item => { if(!baseRessup[item.romaneio]) baseRessup[item.romaneio] = {}; if(!baseRessup[item.romaneio][item.produto]) baseRessup[item.romaneio][item.produto] = { loc: item.loc, descricao: item.descricao, qtde_plan: 0 }; baseRessup[item.romaneio][item.produto].qtde_plan += item.qtde; }); document.getElementById('lblRessup').innerHTML = '2. Planeado <span class="text-teal-400">✓ OK</span>'; document.getElementById('loaderImport').classList.add('hidden'); processarAlgoritmo(); }; reader.readAsArrayBuffer(file);
+        });
 
+        // ==========================================
+        // ALGORITMO E RANKING GLOBAL
+        // ==========================================
+        let motorDadosOp = {}; let coordsPorOperador = {}; 
+
+        function processarAlgoritmo() {
+            if(rawCompras.length === 0) return;
+            
+            rawCompras.forEach(item => { let s = timeToSeconds(item.hora); item.secShift = s < 43200 ? s + 86400 : s; });
+            rawCompras.sort((a,b) => a.secShift - b.secShift);
+
+            motorDadosOp = {}; coordsPorOperador = {}; window.timelineOpData = {}; let rotasPorRomaneio = {};
+            let mapaExecutado = {}; let dicionarioRomaneioOperador = {}; 
+            let globalInsights = { maxEficVal: -1, topEficName: '-', maxGargaloSec: -1, topGargaloName: '-', topGargaloLoc: '-', totalPlanejado: 0 };
+
+            rawCompras.forEach(item => { 
+                let op = item.operador; let rom = item.romaneio; 
+                if(!motorDadosOp[op]) motorDadosOp[op] = { qtde_real: 0, vol_real: 0, dist_metros: 0, romaneios: new Set() }; 
+                
+                motorDadosOp[op].qtde_real += item.qtde; 
+                motorDadosOp[op].romaneios.add(rom);
+                if (op && op !== "Desconhecido") dicionarioRomaneioOperador[rom] = op;
+
+                if(!mapaExecutado[rom]) mapaExecutado[rom] = {};
+                mapaExecutado[rom][item.produto] = (mapaExecutado[rom][item.produto] || 0) + item.qtde;
+
+                let locParsed = parseLocDigitalTwin(item); 
+                if(locParsed) { 
+                    if(!rotasPorRomaneio[rom]) rotasPorRomaneio[rom] = []; rotasPorRomaneio[rom].push(locParsed); 
+                    if(!coordsPorOperador[op]) coordsPorOperador[op] = []; coordsPorOperador[op].push(locParsed); 
+                }
+            });
+
+            let globals = { dist_m: 0, pcs: 0, plan: 0 };
+            
+            let qtdeMaximaGlobal = Math.max(0, ...Object.values(motorDadosOp).map(d => d.qtde_real));
+            let tetoMinimoParaEfic = Math.floor(qtdeMaximaGlobal * 0.15); 
+            if (tetoMinimoParaEfic < 10) tetoMinimoParaEfic = 10;
+
+            let maxAcuracia = -1; let topAcuraciaName = "-";
+
+            let listaRank = [];
+
+            Object.keys(motorDadosOp).forEach(op => { 
+                let d = motorDadosOp[op]; let maxDtOp = -1; let maxLocOp = ""; window.timelineOpData[op] = []; 
+                let coordsOpGlobais = coordsPorOperador[op] || []; coordsOpGlobais.sort((a,b) => a.sec - b.sec); 
+                
+                coordsOpGlobais.forEach((coordAtual, i) => {
+                    let dt = 0; let isJanta = false;
+                    if(i > 0) {
+                        let pSec = coordsOpGlobais[i-1].sec; dt = coordAtual.sec - pSec; 
+                        if (dt >= 3000 && dt <= 7200) { let prevH = (pSec >= 86400 ? pSec - 86400 : pSec) / 3600; if (prevH >= 22 && prevH <= 23.5) isJanta = true; }
+                    }
+                    window.timelineOpData[op].push({ raw: coordAtual.raw, hora: coordAtual.hora, romaneio: coordAtual.romaneio, dt: dt, isJanta: isJanta });
+                    if(i > 0 && coordAtual.romaneio === coordsOpGlobais[i-1].romaneio) { if(dt > maxDtOp && !isJanta) { maxDtOp = dt; maxLocOp = coordAtual.raw; } }
+                });
+                
+                d.gargalo_tempo = maxDtOp; d.gargalo_loc = maxLocOp;
+                if(maxDtOp > globalInsights.maxGargaloSec && maxDtOp > 60) { globalInsights.maxGargaloSec = maxDtOp; globalInsights.topGargaloName = op; globalInsights.topGargaloLoc = maxLocOp; }
+
+                let planOp = 0;
+                d.romaneios.forEach(rom => { 
+                    let coords = rotasPorRomaneio[rom]; if(coords) { for(let i = 1; i < coords.length; i++) { let dist = calcDistanciaReal(coords[i-1], coords[i]); d.dist_metros += dist; globals.dist_m += dist; } } 
+                    if(baseRessup[rom]) { Object.keys(baseRessup[rom]).forEach(prod => { planOp += baseRessup[rom][prod].qtde_plan; }); }
+                }); 
+                d.planejado = planOp; globals.plan += planOp;
+                d.dist_km = d.dist_metros / 1000; globals.pcs += d.qtde_real; 
+                
+                let efiOp = d.dist_km > 0 ? (d.qtde_real / d.dist_km) : 0;
+                d.efi_val = efiOp;
+
+                if(efiOp > globalInsights.maxEficVal && d.qtde_real >= tetoMinimoParaEfic) { globalInsights.maxEficVal = efiOp; globalInsights.topEficName = op; }
+
+                let acuracia = d.planejado > 0 ? (d.qtde_real / d.planejado) * 100 : 0;
+                d.acuracia_val = acuracia;
+                if (acuracia > maxAcuracia && d.planejado >= 20) { maxAcuracia = acuracia; topAcuraciaName = op; }
+
+                // Alimentar lista de Ranking
+                listaRank.push({
+                    op: op,
+                    dist_km: d.dist_km,
+                    efi: efiOp,
+                    planejado: d.planejado,
+                    qtde_real: d.qtde_real,
+                    acuracia_val: d.acuracia_val,
+                    gargalo_tempo: d.gargalo_tempo,
+                    gargalo_loc: d.gargalo_loc
+                });
+            });
+            
+            // PREPARAR DADOS DE RUPTURA
+            listaRupturasGlobais = [];
+            Object.keys(baseRessup).forEach(rom => {
+                Object.keys(baseRessup[rom]).forEach(prod => {
+                    let p = baseRessup[rom][prod]; let exec_qtde = (mapaExecutado[rom] && mapaExecutado[rom][prod]) ? mapaExecutado[rom][prod] : 0;
+                    if (p.qtde_plan > exec_qtde) { 
+                        let responsavel = dicionarioRomaneioOperador[rom] || "Desconhecido";
+                        let pct = p.qtde_plan > 0 ? ((exec_qtde / p.qtde_plan) * 100).toFixed(1) : 0;
+                        listaRupturasGlobais.push({ operador: responsavel, romaneio: rom, loc: p.loc, produto: prod, descricao: p.descricao, plan: p.qtde_plan, exec: exec_qtde, falta: (p.qtde_plan - exec_qtde), pct: pct }); 
+                    }
+                });
+            });
+
+            // DASHBOARD GLOBAL
+            let kpiDist = (globals.dist_m / 1000); let kpiEfi = kpiDist > 0 ? (globals.pcs / kpiDist) : 0;
+            document.getElementById('kpi_dist').innerHTML = `${isNaN(kpiDist)?0:kpiDist.toFixed(2)}<span class="text-sm text-slate-500 ml-1">km</span>`; 
+            document.getElementById('kpi_pecas').innerText = globals.pcs; document.getElementById('kpi_plan').innerText = globals.plan; 
+            document.getElementById('kpi_efi').innerHTML = `${isNaN(kpiEfi)?0:kpiEfi.toFixed(0)}<span class="text-sm text-emerald-700 ml-1">pc/km</span>`;
+            
+            let pctTotal = globals.plan > 0 ? (globals.pcs / globals.plan) * 100 : 0;
+            document.getElementById('kpi_pct').innerText = pctTotal.toFixed(1) + '%';
+            document.getElementById('kpi_top_efi').innerText = globalInsights.topEficName;
+            document.getElementById('kpi_top_acu').innerText = topAcuraciaName !== "-" ? `${topAcuraciaName} (${maxAcuracia.toFixed(1)}%)` : "Sem dados";
+            
+            if(globalInsights.maxGargaloSec > 0) { document.getElementById('kpi_gargalo_nome').innerText = globalInsights.topGargaloName; document.getElementById('kpi_gargalo_detalhe').innerText = `Parou ${Math.round(globalInsights.maxGargaloSec/60)}m em ${globalInsights.topGargaloLoc}`; } 
+
+            // TABELA DE RANKING (Todos os operadores ordenados por eficiência)
+            listaRank.sort((a, b) => b.efi - a.efi); // Ordem decrescente
+            
+            const tb = document.querySelector('#bodyAcuracidade'); let r = ""; 
+            listaRank.forEach((d, index) => {
+                let pos = index + 1;
+                let medalha = "";
+                if(pos === 1) medalha = "🥇 1º";
+                else if(pos === 2) medalha = "🥈 2º";
+                else if(pos === 3) medalha = "🥉 3º";
+                else medalha = pos + "º";
+
+                let efiStr = d.efi.toFixed(0); 
+                let gargaloHtml = d.gargalo_tempo > 60 ? `<span class="bg-red-900/40 text-red-400 px-2 py-1 rounded border border-red-800 font-bold tracking-widest">${d.gargalo_loc}</span> <span class="text-xs text-red-300 ml-1">(${formatarTempoCurto(d.gargalo_tempo)})</span>` : '<span class="text-slate-600">Sem gargalos</span>';
+                
+                let opSafe = d.op.replace(/'/g, "\\'"); 
+
+                r += `<tr class="text-slate-300 hover:bg-slate-800 transition">
+                    <td class="text-center font-black text-xl w-16">${medalha}</td>
+                    <td class="text-white font-bold uppercase text-xs">${d.op}</td>
+                    <td class="text-right text-slate-400 font-mono">${d.dist_km.toFixed(3)}</td>
+                    <td class="text-right text-emerald-400 font-mono font-black text-lg">${efiStr}</td>
+                    <td class="text-right text-slate-500 font-mono">${d.planejado > 0 ? d.planejado : '-'}</td>
+                    <td class="text-right text-sky-400 font-mono font-bold">${d.qtde_real}</td>
+                    <td class="text-right font-mono text-purple-400 font-bold">${d.acuracia_val.toFixed(1)}%</td>
+                    <td class="text-center font-mono">${gargaloHtml}</td>
+                    <td class="text-center no-pdf"><button onclick="abrirModalTimeline('${opSafe}')" class="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded shadow-lg transition text-xs font-bold w-full">🕒 Extrato</button></td>
+                </tr>`; 
+            }); 
+            tb.innerHTML = r || '<tr><td colspan="9" class="text-center py-8">Vazio</td></tr>';
+
+            // TABELA PENTE FINO
+            const tbRup = document.querySelector('#bodyRupturas'); let rRup = "";
+            listaRupturasGlobais.sort((a,b) => a.operador.localeCompare(b.operador) || a.loc.localeCompare(b.loc)).forEach(rup => {
+                let corPct = rup.pct == 0 ? "text-red-400" : "text-orange-400";
+                rRup += `<tr class="text-slate-300 border-b border-slate-800 hover:bg-slate-800 transition-colors">
+                    <td class="font-bold text-white text-xs truncate max-w-[150px]">${rup.operador}</td><td class="font-mono text-xs text-slate-500">${rup.romaneio}</td><td class="font-bold text-sky-400 font-mono">${rup.loc}</td><td class="font-mono text-slate-400">${rup.produto}</td><td class="text-[10px] text-slate-300 truncate max-w-[200px] uppercase">${rup.descricao}</td><td class="text-center font-mono text-slate-500">${rup.plan}</td><td class="text-center font-mono text-sky-400">${rup.exec}</td><td class="text-center font-mono font-bold ${corPct}">${rup.pct}%</td><td class="text-center font-mono text-red-400 font-black bg-red-900/10">${rup.falta}</td><td class="text-center no-pdf"><input type="checkbox" class="w-4 h-4 accent-red-500 cursor-pointer"></td>
+                </tr>`;
+            });
+            tbRup.innerHTML = rRup || '<tr><td colspan="10" class="text-center py-8 text-emerald-400 font-bold">🎉 Nenhuma ruptura detectada! Operação 100% perfeita.</td></tr>';
+
+            const sel = document.getElementById('selectRotaMapa'); sel.innerHTML = '<option value="">Apenas Planta do Armazém</option>'; Object.keys(coordsPorOperador).forEach(op => sel.innerHTML += `<option value="${op.replace(/'/g, "&apos;")}">Rastrear GPS: ${op}</option>`); requestAnimationFrame(renderEngine);
+
+            // ATIVAR ROBÔ IA
+            atualizarRobo(pctTotal, globalInsights.topEficName, topAcuraciaName, globalInsights.topGargaloName, globalInsights.topGargaloLoc, globalInsights.maxGargaloSec);
+        }
+
+        // ==========================================
+        // MENSAGEM DO ROBÔ
+        // ==========================================
+        function atualizarRobo(pct, campeaoEfic, campeaoAcu, gargalo, loc, tempoG) {
+            let msg = `📊 <b>Análise Concluída com Sucesso!</b><br><br>`;
+            msg += `🎯 <b>Taxa Global de Atendimento:</b> ${pct.toFixed(1)}%<br>`;
+            msg += `🏃 <b>Destaque Eficiência (PC/KM):</b> ${campeaoEfic}<br>`;
+            msg += `🏅 <b>Destaque Assertividade:</b> ${campeaoAcu}<br><br>`;
+            if(tempoG > 300) { msg += `🚨 <b>Alerta de Gargalo:</b> O colaborador ${gargalo} perdeu muito tempo (${Math.round(tempoG/60)} minutos) no endereço <span class="text-sky-400 font-mono">${loc}</span>.<br><br>`; }
+            if(listaRupturasGlobais.length > 0) { msg += `📋 Temos <b>${listaRupturasGlobais.length} itens</b> na lista de Revisão. Vá à aba "Pente Fino" e exporte para Excel para auditar!`; } 
+            else { msg += `🎉 Zero rupturas hoje! Operação fantástica.`; }
+            document.getElementById('robotContent').innerHTML = msg;
+            const btnR = document.getElementById('btnRobot');
+            btnR.classList.add('animate-bounce'); btnR.innerHTML = '🤖<span class="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full animate-ping"></span>';
+            setTimeout(() => { btnR.classList.remove('animate-bounce'); }, 4000);
+        }
+
+        function filtrarRevisita() {
+            let input = document.getElementById("filtroRevisita").value.toUpperCase(); let tr = document.getElementById("tbRupturas").getElementsByTagName("tr");
+            for (let i = 1; i < tr.length; i++) {
+                let tdArray = tr[i].getElementsByTagName("td"); let match = false;
+                for (let j = 0; j < tdArray.length; j++) { if (tdArray[j] && tdArray[j].innerHTML.toUpperCase().indexOf(input) > -1) { match = true; break; } }
+                tr[i].style.display = match ? "" : "none";
+            }
+        }
+        function exportarCSVRevisita() {
+            if(listaRupturasGlobais.length === 0) return alert("Não há dados para exportar.");
+            let csvContent = "data:text/csv;charset=utf-8,Operador,Romaneio,Endereco,Codigo_Produto,Descricao,Planeado,Coletado,Porcentagem,Falta\n";
+            listaRupturasGlobais.forEach(r => { let descLimpa = r.descricao.replace(/"/g, '""'); csvContent += `"${r.operador}",${r.romaneio},${r.loc},${r.produto},"${descLimpa}",${r.plan},${r.exec},${r.pct}%,${r.falta}\n`; });
+            let encodedUri = encodeURI(csvContent); let link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "Relatorio_Pente_Fino_WMS.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        }
+        function exportarPDFRevisita() {
+            const elOcultos = document.querySelectorAll('.no-pdf'); elOcultos.forEach(el => el.style.display = 'none');
+            const el = document.getElementById('divPDFRevisita'); document.querySelector('#divPDFRevisita .pdf-header').style.display = 'block'; document.getElementById('dataRevisitaPDF').innerText = "Gerado em: " + new Date().toLocaleString('pt-PT');
+            el.style.backgroundColor = 'white'; el.style.color = 'black'; document.querySelectorAll('#tbRupturas th').forEach(th => { th.style.backgroundColor = '#f1f5f9'; th.style.color = 'black'; }); document.querySelectorAll('#tbRupturas td').forEach(td => { td.style.color = 'black'; td.style.borderColor = '#cbd5e1'; });
+            html2pdf().set({ margin: 0.3, filename: 'Relatorio_Pente_Fino.pdf', image: { type: 'jpeg', quality: 1 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' } }).from(el).save().then(() => { 
+                document.querySelector('#divPDFRevisita .pdf-header').style.display = 'none'; elOcultos.forEach(x => x.style.display = ''); el.style.backgroundColor = ''; el.style.color = ''; document.querySelectorAll('#tbRupturas th').forEach(th => { th.style.backgroundColor = ''; th.style.color = ''; }); document.querySelectorAll('#tbRupturas td').forEach(td => { td.style.color = ''; td.style.borderColor = ''; });
+            });
+        }
+        function abrirModalTimeline(op) {
+            let realOp = op.replace(/&apos;/g, "'"); if (!window.timelineOpData || !window.timelineOpData[realOp]) return alert("Sem dados de tempo para este operador.");
+            document.getElementById('timelineOpNome').innerText = realOp; const tbody = document.getElementById('bodyTimeline'); let html = ''; let dados = window.timelineOpData[realOp];
+            dados.forEach((p, index) => {
+                let dt = p.dt; let cls = "hover:bg-slate-800"; let icone = ""; let rotulo = "";
+                if (p.isJanta) { cls = "bg-blue-900/20 text-blue-300 font-bold"; icone = "🍽️ "; rotulo = " (Janta)"; } else if(dt > 600) { cls = "bg-red-900/20 text-red-300 font-bold"; icone = "⚠️ "; } else if (dt > 300) { cls = "bg-orange-900/20 text-orange-300 font-semibold"; icone = "⏱️ "; }
+                let tForm = index === 0 ? "Início do Roteiro" : formatarTempoExtenso(dt) + rotulo; html += `<tr class="border-b border-slate-800/50 ${cls}"><td class="p-3 font-mono text-xs opacity-70">${p.hora}</td><td class="p-3 font-mono font-bold text-sky-400">${p.raw}</td><td class="p-3 text-xs opacity-70">${p.romaneio}</td><td class="p-3 text-right font-black tracking-wide">${icone}${tForm}</td></tr>`;
+            });
+            tbody.innerHTML = html; document.getElementById('modalTimeline').classList.remove('hidden'); document.getElementById('modalTimeline').classList.add('flex');
+        }
+        function fecharModalTimeline() { document.getElementById('modalTimeline').classList.add('hidden'); document.getElementById('modalTimeline').classList.remove('flex'); }
+
+        // ==========================================
+        // MOTOR DIGITAL TWIN (MAPA)
+        // ==========================================
+        function parseLocDigitalTwin(item) { try { let e = String(item.loc).toUpperCase().trim(); let prefixo = ''; if (e.startsWith('VR')) prefixo = 'VR'; else if (e.startsWith('VY')) prefixo = 'VY'; else if (e.startsWith('VX')) prefixo = 'VX'; else if (e.startsWith('VW')) prefixo = 'VW'; else if (e.startsWith('V')) prefixo = 'V'; else return null; let limpo = e.replace(prefixo, ''); let p = limpo.split('-'); if (p.length < 3) return null; let rua = parseInt(p[0]); let modulo = parseInt(p[1]); let posicao = parseInt(p[2]); if (isNaN(rua) || isNaN(modulo)) return null; const coordGrafica = mapToGrid(rua, modulo, prefixo, posicao); const cor = getZonaCor(rua, modulo, prefixo); return { romaneio: item.romaneio, hora: item.hora, sec: item.secShift, rua, modulo, posicao, prefixo, gx: coordGrafica.x, gy: coordGrafica.y, cor: cor, raw: e }; } catch (err) { return null; } }
+        function calcDistanciaReal(origem, destino) { if (!origem || !destino) return 0; const cfg = { rua: 3.5, modulo: 1.2, posicao: 5.6 }; let dist = 0; const MEZ = ['VY','VX','VW']; const oMez = MEZ.includes(origem.prefixo); const dMez = MEZ.includes(destino.prefixo); if (oMez !== dMez) dist += 15; if (oMez && dMez && origem.prefixo !== destino.prefixo) dist += 8; if (origem.rua === destino.rua && origem.prefixo === destino.prefixo) { dist += (Math.abs(destino.modulo - origem.modulo) * cfg.modulo) + Math.abs(destino.posicao - origem.posicao) * cfg.posicao; } else { dist += (origem.modulo * cfg.modulo) + (Math.abs(destino.rua - origem.rua) * cfg.rua) + (destino.modulo * cfg.modulo); } return isNaN(dist) ? 0 : dist; }
+        const COLORS = { alimento: '#f59e0b', mezVolumos: '#fbbf24', mezControl: '#a78bfa', mezDermos: '#f472b6', amarelo: '#eab308', verde: '#22c55e', azul: '#3b82f6', rosa: '#ec4899', geral: '#64748b', fundoBloco: 'rgba(30, 41, 59, 0.4)' };
+        function getZonaCor(rua, modulo, prefixo) { if (prefixo === 'VR') return COLORS.alimento; if (prefixo === 'VY') return COLORS.mezVolumos; if (prefixo === 'VX') return COLORS.mezControl; if (prefixo === 'VW') return COLORS.mezDermos; if (rua >= 21 && rua <= 36) { if (modulo <= 26) return COLORS.amarelo; if (modulo >= 33 && modulo <= 46) return COLORS.verde; if (modulo >= 53 && modulo <= 60) return COLORS.azul; } if (rua === 40 || rua === 42) return COLORS.rosa; if (rua >= 10 && rua <= 20) return COLORS.geral; return COLORS.fundoBloco; }
+        const W = { MARGEM_ESQ: 2, GERAL_X0: 3, GERAL_X1: 13, PERF_X0: 14, PERF_X1: 30, RUA40_X: 31, RUA42_X: 33, CAM_X0: 35, CAM_X1: 42, TOPO: 0, MEZANINO_Y0: 0, MEZANINO_Y1: 5, ALIM_Y0: 0, ALIM_Y1: 12, GERAL_Y0: 0, GERAL_Y1: 55, ALTO_PERF_Y0: 2, ALTO_PERF_Y1: 24, CORR40_Y: 27, BAIXO_PERF_Y0: 30, BAIXO_PERF_Y1: 44, CORR42_Y: 47, BAIXO_MED_Y0: 50, BAIXO_MED_Y1: 60, CAM_Y0: 42, CAM_Y1: 60, R40_MOD_X0: 14, R40_MOD_X1: 30 };
+        function mapToGrid(rua, modulo, prefixo, posicao) { if (prefixo === 'VR') { const ruaIdx = rua - 10; const gx = W.GERAL_X0 + ruaIdx * 2.5; const gy = W.ALIM_Y0 + (modulo - 10) * 0.35; return { x: gx, y: gy }; } if (prefixo === 'VY' || prefixo === 'VX' || prefixo === 'VW') { const ruaIdx = rua - 1; const blocoB = ruaIdx >= 12; const ruaLocal = blocoB ? ruaIdx - 12 : ruaIdx; const gx = (blocoB ? 21.5 : 0.5) + ruaLocal * 1.7 + 0.85; const centroY = prefixo === 'VY' ? -16 : (prefixo === 'VX' ? -10.3 : -4.6); const gy = centroY + (modulo / 20) * 3.5; return { x: Math.max(0.5, Math.min(gx, 43.5)), y: gy }; } if (rua >= 10 && rua <= 20) { const ruaIdx = rua - 10; const gx = W.GERAL_X0 + ruaIdx * 1.0; const gy = W.GERAL_Y0 + modulo * 0.9; return { x: gx, y: gy }; } if (rua >= 21 && rua <= 36) { const ruaIdx = rua - 21; const gx = W.PERF_X0 + ruaIdx * 1.0; if (modulo <= 26) { const gy = W.ALTO_PERF_Y0 + (modulo - 1) * ((W.ALTO_PERF_Y1 - W.ALTO_PERF_Y0) / 26); return { x: gx, y: gy }; } else if (modulo >= 33 && modulo <= 46) { const gy = W.BAIXO_PERF_Y0 + (modulo - 33) * ((W.BAIXO_PERF_Y1 - W.BAIXO_PERF_Y0) / 14); return { x: gx, y: gy }; } else if (modulo >= 53 && modulo <= 60) { const gy = W.BAIXO_MED_Y0 + (modulo - 53) * ((W.BAIXO_MED_Y1 - W.BAIXO_MED_Y0) / 8); return { x: gx, y: gy }; } return { x: gx, y: W.ALTO_PERF_Y0 + modulo * 0.5 }; } if (rua === 40 || rua === 42) { const baseY = rua === 40 ? W.CORR40_Y : W.CORR42_Y; const gx = W.R40_MOD_X0 + (modulo - 57) * ((W.R40_MOD_X1 - W.R40_MOD_X0) / 34); return { x: Math.max(W.R40_MOD_X0, Math.min(gx, W.R40_MOD_X1)), y: baseY }; } return { x: W.PERF_X0, y: W.ALTO_PERF_Y0 }; }
+        
+        const canvas = document.getElementById('canvasEngine'); const ctx = canvas.getContext('2d'); const container = document.getElementById('map-container'); let transform = { x: 0, y: 0, scale: 15 }; let isDragging = false; let startPan = { x: 0, y: 0 };
+        function resizeCanvas() { const rect = container.getBoundingClientRect(); canvas.width = rect.width; canvas.height = rect.height; resetZoom(); } window.addEventListener('resize', resizeCanvas);
+        function resetZoom() { const scaleX = canvas.width / 50; const scaleY = canvas.height / 70; transform.scale = Math.min(scaleX, scaleY) * 0.92; transform.x = canvas.width * 0.04; transform.y = canvas.height * 0.03; requestAnimationFrame(renderEngine); }
+        container.addEventListener('mousedown', e => { isDragging = true; startPan = { x: e.clientX - transform.x, y: e.clientY - transform.y }; }); container.addEventListener('mousemove', e => { if (!isDragging) return; transform.x = e.clientX - startPan.x; transform.y = e.clientY - startPan.y; requestAnimationFrame(renderEngine); }); container.addEventListener('mouseup', () => isDragging = false); container.addEventListener('mouseleave', () => isDragging = false); container.addEventListener('touchstart', e => { if(e.touches.length===1){ isDragging=true; startPan={x:e.touches[0].clientX-transform.x,y:e.touches[0].clientY-transform.y};} }, {passive:true}); container.addEventListener('touchmove', e => { if(!isDragging||e.touches.length!==1) return; transform.x=e.touches[0].clientX-startPan.x; transform.y=e.touches[0].clientY-startPan.y; requestAnimationFrame(renderEngine); }, {passive:true}); container.addEventListener('touchend', () => isDragging = false); container.addEventListener('wheel', e => { e.preventDefault(); const rect = container.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top; let newScale = Math.max(4, Math.min(transform.scale * (1 + (-e.deltaY * 0.002)), 80)); transform.x = mouseX - (mouseX - transform.x) * (newScale / transform.scale); transform.y = mouseY - (mouseY - transform.y) * (newScale / transform.scale); transform.scale = newScale; requestAnimationFrame(renderEngine); });
+        
+        function label(txt, gx, gy, tamanho, cor, bg) { ctx.save(); ctx.scale(1/transform.scale, 1/transform.scale); const fs = tamanho || 9; ctx.font = `bold ${fs}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; if (bg) { const tw = ctx.measureText(txt).width; ctx.fillStyle = bg; ctx.fillRect(-tw/2 - 4, -fs*0.7, tw + 8, fs * 1.4); } ctx.fillStyle = cor || 'rgba(255,255,255,0.85)'; ctx.fillText(txt, 0, 0); ctx.restore(); }
+        function preencherZona(x, y, w, h, corFundo, corBorda, raio) { const r = raio || 0.3; ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x+w, y, x+w, y+r, r); ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w, y+h, x+w-r, y+h, r); ctx.lineTo(x+r, y+h); ctx.arcTo(x, y+h, x, y+h-r, r); ctx.lineTo(x, y+r); ctx.arcTo(x, y, x+r, y, r); ctx.closePath(); ctx.fillStyle = corFundo; ctx.fill(); if (corBorda) { ctx.strokeStyle = corBorda; ctx.lineWidth = 0.08; ctx.stroke(); } }
+        function desenharPrateleiras(x0, y0, largRua, altTotal, nRuas, nModulos, corBarra, corFundo, prefixoLabel, ruaInicio, modInicio) { const passo = largRua; const modAltura = altTotal / nModulos; preencherZona(x0, y0, nRuas * passo, altTotal, corFundo, null, 0.2); ctx.fillStyle = corBarra; for (let r = 0; r <= nRuas; r++) { ctx.fillRect(x0 + r * passo - 0.07, y0, 0.14, altTotal); } ctx.strokeStyle = corBarra; ctx.lineWidth = 0.04; for (let m = 0; m <= nModulos; m++) { ctx.beginPath(); ctx.moveTo(x0, y0 + m * modAltura); ctx.lineTo(x0 + nRuas * passo, y0 + m * modAltura); ctx.stroke(); } if (transform.scale > 10) { for (let r = 0; r < nRuas; r++) { const cx = x0 + r * passo + passo / 2; const cy = y0 - 0.8; ctx.save(); ctx.translate(cx, cy); label(`R${ruaInicio + r}`, 0, 0, 7, '#94a3b8', null); ctx.restore(); } } if (transform.scale > 22 && nModulos > 0) { for (let m = 0; m < nModulos; m++) { const cy = y0 + (m + 0.5) * modAltura; for (let r = 0; r < nRuas; r++) { const cx = x0 + r * passo + passo / 2; ctx.save(); ctx.translate(cx, cy); label(`${prefixoLabel ? prefixoLabel + '-' : ''}${String(ruaInicio + r).padStart(2,'0')}-${String(modInicio + m).padStart(2,'0')}`, 0, 0, 6, 'rgba(255,255,255,0.6)', null); ctx.restore(); } } } }
+        function desenharCorredorHorizontal(x0, y0, largura, altura, cor, titulo) { preencherZona(x0, y0, largura, altura, cor, '#0f172a', 0.15); if (transform.scale > 6) { ctx.save(); ctx.translate(x0 + largura / 2, y0 + altura / 2); label(titulo, 0, 0, 8, '#cbd5e1', 'rgba(0,0,0,0.4)'); ctx.restore(); } }
+        
+        function desenharArmazemBlueprint() {
+            const s = transform.scale; preencherZona(-0.5, -1, 46, 66, 'rgba(15,23,42,0.6)', '#1e293b', 0.5); ctx.strokeStyle = '#475569'; ctx.lineWidth = 0.25; ctx.strokeRect(0, 0, 44, 63);
+            preencherZona(-0.3, -19, 44.6, 19.5, 'rgba(30,15,60,0.5)', '#4c1d95', 0.5); ctx.save(); ctx.translate(22, -19.8); label('▲  MEZANINO  (3 ANDARES)', 0, 0, 11, '#c084fc', 'rgba(15,23,42,0.8)'); ctx.restore();
+            preencherZona(0.2, -18.5, 43.6, 5, 'rgba(251,191,36,0.07)', '#b45309', 0.3); desenharPrateleiras(0.5, -18, 1.7, 4.2, 12, 20, '#d97706', 'rgba(251,191,36,0.12)', 'V', 80, 1); desenharPrateleiras(21.5, -18, 1.7, 4.2, 12, 20, '#d97706', 'rgba(251,191,36,0.12)', 'V', 92, 1); ctx.save(); ctx.translate(22, -16.4); label('1° ANDAR — VOLUMOSO  (Ruas 80–91)', 0, 0, 10, '#fbbf24', 'rgba(15,23,42,0.75)'); ctx.restore();
+            preencherZona(0.2, -12.8, 43.6, 5, 'rgba(139,92,246,0.10)', '#5b21b6', 0.3); desenharPrateleiras(0.5, -12.3, 1.7, 4.2, 12, 20, '#7c3aed', 'rgba(109,40,217,0.18)', 'V', 80, 1); desenharPrateleiras(21.5, -12.3, 1.7, 4.2, 12, 20, '#7c3aed', 'rgba(109,40,217,0.18)', 'V', 92, 1); ctx.save(); ctx.translate(22, -10.7); label('2° ANDAR — CONTROLADO  (Ruas 80–91)', 0, 0, 10, '#a78bfa', 'rgba(15,23,42,0.75)'); ctx.restore();
+            preencherZona(0.2, -7.1, 43.6, 5, 'rgba(244,114,182,0.08)', '#9d174d', 0.3); desenharPrateleiras(0.5, -6.6, 1.7, 4.2, 12, 20, '#db2777', 'rgba(244,114,182,0.15)', 'V', 80, 1); desenharPrateleiras(21.5, -6.6, 1.7, 4.2, 12, 20, '#db2777', 'rgba(244,114,182,0.15)', 'V', 92, 1); ctx.save(); ctx.translate(22, -5.0); label('3° ANDAR — DERMOS  (Ruas 80–91)', 0, 0, 10, '#f472b6', 'rgba(15,23,42,0.75)'); ctx.restore();
+            ctx.strokeStyle = '#4c1d95'; ctx.lineWidth = 0.12; ctx.setLineDash([0.4, 0.3]); [-13.1, -7.4].forEach(y => { ctx.beginPath(); ctx.moveTo(0.2, y); ctx.lineTo(43.8, y); ctx.stroke(); }); ctx.setLineDash([]);
+            if (s > 5) { [ { y: -16, txt: '1°', cor: '#fbbf24' }, { y: -10.3, txt: '2°', cor: '#a78bfa' }, { y: -4.6, txt: '3°', cor: '#f472b6' } ].forEach(l => { ctx.save(); ctx.translate(-0.5, l.y); ctx.scale(1/s, 1/s); ctx.font = 'bold 10px Inter'; ctx.fillStyle = l.cor; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(l.txt, 0, 0); ctx.restore(); }); }
+            preencherZona(0.3, 0.3, 10, 12, 'rgba(245,158,11,0.07)', '#b45309', 0.3); desenharPrateleiras(0.6, 1, 2.2, 10.5, 4, 22, '#d97706', 'rgba(245,158,11,0.12)', 'VR', 10, 10); ctx.save(); ctx.translate(5.5, 6); label('ALIMENTOS', 0, 0, 11, '#fbbf24', 'rgba(15,23,42,0.7)'); ctx.restore();
+            preencherZona(0.3, 13, 10, 47, 'rgba(100,116,139,0.07)', '#475569', 0.3); desenharPrateleiras(0.6, 13.5, 0.92, 45.5, 11, 60, '#64748b', 'rgba(100,116,139,0.1)', 'V', 10, 1); ctx.save(); ctx.translate(5.5, 36); label('GERAL  RUA 10–20', 0, 0, 11, '#94a3b8', 'rgba(15,23,42,0.7)'); ctx.restore();
+            preencherZona(11.5, 0.3, 17, 23, 'rgba(234,179,8,0.07)', '#a16207', 0.3); desenharPrateleiras(11.8, 0.8, 1.02, 22, 16, 26, '#ca8a04', 'rgba(234,179,8,0.10)', 'V', 21, 1); ctx.save(); ctx.translate(20, 12); label('ALTO PERFUMARIA', 0, 0, 11, '#fde047', 'rgba(15,23,42,0.7)'); ctx.restore();
+            desenharCorredorHorizontal(11.5, 23.8, 17, 2.2, 'rgba(236,72,153,0.08)', '━  RUA 40  ━'); if (s > 6) { ctx.strokeStyle = '#ec4899'; ctx.lineWidth = 0.06; ctx.setLineDash([0.3, 0.3]); for (let m = 0; m <= 33; m++) { const xm = 11.8 + m * (17/34); ctx.beginPath(); ctx.moveTo(xm, 23.8); ctx.lineTo(xm, 26); ctx.stroke(); } ctx.setLineDash([]); }
+            preencherZona(11.5, 26.3, 17, 14, 'rgba(34,197,94,0.07)', '#15803d', 0.3); desenharPrateleiras(11.8, 26.8, 1.02, 13, 16, 14, '#16a34a', 'rgba(34,197,94,0.10)', 'V', 21, 33); ctx.save(); ctx.translate(20, 33); label('BAIXO PERF. / ALTO MED.', 0, 0, 11, '#4ade80', 'rgba(15,23,42,0.7)'); ctx.restore();
+            desenharCorredorHorizontal(11.5, 40.6, 17, 2.2, 'rgba(236,72,153,0.08)', '━  RUA 42  ━'); if (s > 6) { ctx.strokeStyle = '#ec4899'; ctx.lineWidth = 0.06; ctx.setLineDash([0.3, 0.3]); for (let m = 0; m <= 33; m++) { const xm = 11.8 + m * (17/34); ctx.beginPath(); ctx.moveTo(xm, 40.6); ctx.lineTo(xm, 42.8); ctx.stroke(); } ctx.setLineDash([]); }
+            preencherZona(11.5, 43.1, 17, 9.5, 'rgba(59,130,246,0.07)', '#1d4ed8', 0.3); desenharPrateleiras(11.8, 43.6, 1.02, 8.5, 16, 8, '#2563eb', 'rgba(59,130,246,0.10)', 'V', 21, 53); ctx.save(); ctx.translate(20, 48); label('BAIXO MEDICAMENTO', 0, 0, 11, '#60a5fa', 'rgba(15,23,42,0.7)'); ctx.restore();
+            preencherZona(29.5, 43, 11, 12, 'rgba(186,230,253,0.05)', '#0369a1', 0.4); ctx.strokeStyle = '#0ea5e9'; ctx.lineWidth = 0.06; for (let i = 1; i < 5; i++) { ctx.beginPath(); ctx.moveTo(29.5 + i*2.2, 43); ctx.lineTo(29.5 + i*2.2, 55); ctx.stroke(); } for (let j = 1; j < 5; j++) { ctx.beginPath(); ctx.moveTo(29.5, 43 + j*3); ctx.lineTo(40.5, 43 + j*3); ctx.stroke(); } ctx.save(); ctx.translate(35, 49); label('❄  CÂMARA FRIA', 0, 0, 12, '#7dd3fc', 'rgba(2,44,80,0.85)'); ctx.restore(); ctx.save(); ctx.translate(35, 51); label('128 m²', 0, 0, 9, '#38bdf8', null); ctx.restore(); ctx.strokeStyle = '#0284c7'; ctx.lineWidth = 0.18; ctx.strokeRect(29.5, 43, 11, 12);
+            preencherZona(29.5, 0, 14.5, 12, 'rgba(168,85,247,0.05)', '#7c3aed', 0.3); ctx.fillStyle = 'rgba(139,92,246,0.15)'; for (let d = 0; d < 6; d++) { ctx.fillRect(30.5 + d * 2.2, 0.3, 1.8, 4); ctx.strokeStyle = '#6d28d9'; ctx.lineWidth = 0.08; ctx.strokeRect(30.5 + d * 2.2, 0.3, 1.8, 4); } ctx.save(); ctx.translate(37, 7); label('EXPEDIÇÃO / DOCAS', 0, 0, 11, '#c084fc', 'rgba(15,23,42,0.7)'); ctx.restore();
+            ctx.strokeStyle = 'rgba(51,65,85,0.6)'; ctx.lineWidth = 0.12; ctx.setLineDash([0.5,0.5]); ctx.beginPath(); ctx.moveTo(11.3, 0); ctx.lineTo(11.3, 63); ctx.stroke(); ctx.beginPath(); ctx.moveTo(29.2, 0); ctx.lineTo(29.2, 63); ctx.stroke(); ctx.setLineDash([]);
+            if (s < 12) { const legendas = [ { cor: '#f59e0b', txt: 'Alimentos' }, { cor: '#fbbf24', txt: 'Mez. 1° Volumoso' }, { cor: '#a78bfa', txt: 'Mez. 2° Controlado' }, { cor: '#f472b6', txt: 'Mez. 3° Dermos' }, { cor: '#64748b', txt: 'Geral R10-20' }, { cor: '#eab308', txt: 'Alto Perf.' }, { cor: '#22c55e', txt: 'Baixo Perf./Alto Med.' }, { cor: '#3b82f6', txt: 'Baixo Med.' }, { cor: '#ec4899', txt: 'Ruas 40/42' }, { cor: '#0ea5e9', txt: 'Câmara Fria' }, ]; ctx.save(); ctx.scale(1/s, 1/s); const lx = 5; let ly = 50; legendas.forEach(l => { ctx.fillStyle = l.cor; ctx.fillRect(lx, ly, 12, 9); ctx.font = 'bold 9px Inter'; ctx.fillStyle = '#cbd5e1'; ctx.textBaseline = 'middle'; ctx.fillText(l.txt, lx + 15, ly + 4.5); ly += 13; }); ctx.restore(); }
+            if (s < 14) { ctx.save(); ctx.translate(22, -0.5); ctx.scale(1/s, 1/s); ctx.font = 'bold 11px Inter'; ctx.fillStyle = 'rgba(148,163,184,0.7)'; ctx.textAlign = 'center'; ctx.fillText('CD DUQUE DE CAXIAS', 0, 0); ctx.restore(); }
+        }
+
+        function desenharRotas() {
+            const opRaw = document.getElementById('selectRotaMapa').value; const op = opRaw.replace(/&apos;/g, "'"); if(!op || !coordsPorOperador[op]) return; const coords = coordsPorOperador[op]; let maxDt = -1; let maxIndex = -1;
+            for(let i = 1; i < coords.length; i++) { if(coords[i].romaneio === coords[i-1].romaneio) { let dt = coords[i].sec - coords[i-1].sec; let isJanta = false; if (dt >= 3000 && dt <= 7200) { let originalSec = coords[i-1].sec >= 86400 ? coords[i-1].sec - 86400 : coords[i-1].sec; let prevH = originalSec / 3600; if (prevH >= 22 && prevH <= 23.5) { isJanta = true; } } if(dt > maxDt && !isJanta) { maxDt = dt; maxIndex = i; } } }
+            ctx.beginPath(); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 0.3; ctx.lineJoin = 'round'; ctx.setLineDash([0.5, 0.5]); ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 5;
+            for(let i=0; i<coords.length; i++) { if(i === 0) ctx.moveTo(coords[i].gx, coords[i].gy); else ctx.lineTo(coords[i].gx, coords[i].gy); } ctx.stroke(); ctx.shadowBlur = 0; ctx.setLineDash([]);
+            coords.forEach((p, i) => {
+                const isGargalo = (i === maxIndex && maxDt > 60);
+                if (isGargalo) { ctx.shadowColor = '#ef4444'; ctx.shadowBlur = 20; ctx.fillStyle = '#f97316'; ctx.beginPath(); ctx.arc(p.gx, p.gy, 1.2, 0, 2*Math.PI); ctx.fill(); ctx.shadowBlur = 0; } 
+                else { ctx.beginPath(); ctx.arc(p.gx, p.gy, 0.4, 0, 2*Math.PI); ctx.fillStyle = p.cor; ctx.fill(); ctx.lineWidth = 0.1; ctx.strokeStyle = '#ffffff'; ctx.stroke(); }
+                if (transform.scale > 10 || isGargalo) { ctx.save(); ctx.translate(p.gx, p.gy - 1); ctx.scale(1/transform.scale, 1/transform.scale); let labelText = `${i+1}º ${p.raw}`; if (isGargalo) { ctx.font = '900 13px Inter'; labelText = `🔥 GARGALO: +${Math.round(maxDt/60)} min em ${p.raw}`; ctx.fillStyle = 'rgba(153, 27, 27, 0.9)'; } else { ctx.font = 'bold 11px Inter'; ctx.fillStyle = 'rgba(15, 23, 42, 0.9)'; } const txtW = ctx.measureText(labelText).width; ctx.fillRect(-txtW/2 - 6, -14, txtW + 12, 20); ctx.fillStyle = isGargalo ? '#fca5a5' : '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(labelText, 0, -3); ctx.restore(); }
+            });
+        }
+
+        function renderEngine() { if (!ctx) return; ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.save(); ctx.translate(transform.x, transform.y); ctx.scale(transform.scale, transform.scale); desenharArmazemBlueprint(); desenharRotas(); ctx.restore(); }
+        
+        window.onload = function() { carregarBancoFrota(); resizeCanvas(); resetZoom(); };
+    </script>
 </body>
 </html>
